@@ -102,9 +102,18 @@ export function useInspectionPipeline({
     activeRevisionRef.current = activeRevision;
   }, [activeMaster, activeRevision]);
 
+  // Refresh dashboard counters from the same source used by Inspection History.
+  // Clear History calls this after the records are removed, so the live counters
+  // cannot keep showing stale totals from the previous inspection run.
+  const refreshStats = useCallback(async () => {
+    const nextStats = await dbService.getStats();
+    setStats(nextStats);
+    return nextStats;
+  }, []);
+
   // Load initial stats and subscribe to PLC state
   useEffect(() => {
-    dbService.getStats().then(setStats).catch(console.error);
+    refreshStats().catch(console.error);
 
     const unsubscribe = plcService.subscribe((hs, sigs) => {
       setPlcHandshake(hs);
@@ -112,7 +121,7 @@ export function useInspectionPipeline({
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [refreshStats]);
 
   // Reset state when master/revision changes
   const resetPipeline = useCallback(() => {
@@ -823,6 +832,7 @@ export function useInspectionPipeline({
     plcHandshake,
     plcSignals,
     resetPipeline,
+    refreshStats,
     calibrateBackground,
     startSession,
   };
