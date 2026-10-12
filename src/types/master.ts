@@ -42,6 +42,9 @@ export interface InspectionROI {
   x: number;
   y: number;
   radius: number;
+  /** Normalized rectangle size (0-1). When omitted, legacy radius defines a square ROI. */
+  width?: number;
+  height?: number;
   toleranceRadius: number;
   minConfidence: number;
   isRequired: boolean;
