@@ -78,7 +78,6 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   stabilizationProgress,
   motionDelta,
   currentResult,
-  latestAlignment,
   latestRoiResults,
   latestExtraObjects,
   stats,
@@ -492,20 +491,14 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
 
                 <div className="text-[11px] font-mono space-y-0.5">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Presence:</span>
-                    <span className={roi.isPresent ? 'text-emerald-400' : 'text-red-400'}>
-                      {roi.isPresent ? 'OK' : 'MISSING'}
+                    <span className="text-slate-400">Evidence:</span>
+                    <span className={roi.isPresent ? 'text-emerald-400' : 'text-amber-400'}>
+                      {roi.isPresent ? 'AVAILABLE' : 'UNAVAILABLE'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Confidence:</span>
+                    <span className="text-slate-400">Similarity:</span>
                     <span>{(roi.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Offset:</span>
-                    <span className={roi.isWithinTolerance ? 'text-slate-200' : 'text-red-400 font-bold'}>
-                      +{roi.positionOffsetMm}mm
-                    </span>
                   </div>
                 </div>
 
