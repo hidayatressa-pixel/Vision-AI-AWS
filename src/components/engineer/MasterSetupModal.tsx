@@ -305,7 +305,6 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       return;
     }
 
-    const updatedRevisions = master.revisions.map((r) => (r.id === editedRevision.id ? editedRevision : r));
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       anchors: [],
@@ -347,7 +346,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">
-                Master Calibration & ROI Editor · {master.productName} ({editedRevision.revisionCode})
+                Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
                 Draw rectangular inspection areas and compare them with approved OK reference images.
