@@ -30,29 +30,26 @@ export class RuleEngine {
     const expectedCount = revision.inspectionROIs.length;
     const defects: DefectItem[] = [];
 
-    const references = new Map(
-      (revision.referenceImages || [])
-        .filter((reference) => Boolean(reference.imageUrl))
-        .map((reference) => [reference.roiId || reference.id, reference])
-    );
-    const missingReferences = revision.inspectionROIs.filter((roi) => !references.has(roi.id));
+    const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
+    const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+    const ngReferences = references.filter((reference) => reference.kind === 'NG');
     const invalidConfiguration =
       revision.masterWidth <= 0 ||
       revision.masterHeight <= 0 ||
       !revision.masterImageUrl ||
       expectedCount === 0 ||
-      missingReferences.length > 0;
-
+      okReferences.length !== 4 ||
+      ngReferences.length !== 4;
     if (invalidConfiguration) {
       const details = [
         !revision.masterImageUrl ? 'master image missing' : '',
         expectedCount === 0 ? 'no rectangular ROI configured' : '',
-        missingReferences.length ? 'approved OK reference missing for: ' + missingReferences.map((roi) => roi.name).join(', ') : '',
+        `reference set incomplete (OK ${okReferences.length}/4, NG ${ngReferences.length}/4)`,
       ].filter(Boolean).join('; ');
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
-        message: 'Simple ROI configuration is incomplete: ' + details,
-        expected: 'At least one rectangle ROI and one approved OK reference per ROI',
+        message: 'Multi-reference ROI configuration is incomplete: ' + details,
+        expected: 'At least one rectangle ROI and exactly four uploaded OK plus four uploaded NG references',
         actual: 'Configuration incomplete',
       });
       return {
@@ -87,7 +84,7 @@ export class RuleEngine {
           roiId: roi.id,
           roiName: roi.name,
           message: result?.failureReason || `${roi.name}: comparison evidence unavailable`,
-          expected: 'Readable ROI and approved OK reference',
+          expected: 'Readable ROI and complete OK/NG reference set',
           actual: 'Comparison could not be completed',
         });
         continue;
@@ -120,7 +117,7 @@ export class RuleEngine {
     if (defects.length === 0 && passedCount === expectedCount) {
       return {
         judgement: 'OK',
-        primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons matched the approved OK reference`,
+        primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using the 4 OK / 4 NG reference set`,
         defects: [],
         expectedCount,
         detectedCount: passedCount,
