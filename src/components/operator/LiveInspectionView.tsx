@@ -226,7 +226,6 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   }, [
     activeRevision,
     currentResult,
-    latestAlignment,
     latestExtraObjects,
     latestRoiResults,
     showOverlays,
