@@ -44,6 +44,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const loadedReferenceImageRef = useRef<HTMLImageElement | null>(null);
+  const loadedReferenceIdRef = useRef<string | null>(null);
   const referenceDraggingRef = useRef(false);
   const referencePointerIdRef = useRef<number | null>(null);
   const referencePointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
@@ -298,37 +300,60 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const selectedReference = editedRevision.referenceImages?.find((reference) => reference.id === selectedReferenceId);
   const selectedRoi = editedRevision.inspectionROIs.find((roi) => roi.id === selectedId) || editedRevision.inspectionROIs[0];
 
-  useEffect(() => {
-    if (!isOpen || !selectedReference?.imageUrl) return;
+  const drawReferenceOverlay = () => {
     const canvas = referenceCanvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    const image = loadedReferenceImageRef.current;
+    if (!canvas || !ctx || !image || !selectedReference || loadedReferenceIdRef.current !== selectedReference.id) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const roi of editedRevision.inspectionROIs) {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      const layout = selectedReference.roiLayouts?.[roi.id] || {
+        x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+      };
+      const selected = roi.id === selectedId;
+      ctx.strokeStyle = selected ? '#f59e0b' : selectedReference.kind === 'NG' ? '#f87171' : '#34d399';
+      ctx.lineWidth = selected ? 4 : 2;
+      ctx.setLineDash(selected ? [] : [8, 5]);
+      ctx.strokeRect(layout.x * canvas.width, layout.y * canvas.height, layout.width * canvas.width, layout.height * canvas.height);
+      ctx.setLineDash([]);
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillText(roi.name, layout.x * canvas.width + 4, Math.max(16, layout.y * canvas.height - 5));
+      if (selected) ctx.fillRect((layout.x + layout.width) * canvas.width - 9, (layout.y + layout.height) * canvas.height - 9, 18, 18);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !selectedReference?.imageUrl) {
+      loadedReferenceImageRef.current = null;
+      loadedReferenceIdRef.current = null;
+      return;
+    }
     const image = new Image();
     image.decoding = 'async';
     image.onload = () => {
+      loadedReferenceImageRef.current = image;
+      loadedReferenceIdRef.current = selectedReference.id;
+      const canvas = referenceCanvasRef.current;
+      if (!canvas) return;
       canvas.width = image.naturalWidth || 800;
       canvas.height = image.naturalHeight || 600;
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      for (const roi of editedRevision.inspectionROIs) {
-        const width = roi.width ?? roi.radius * 2;
-        const height = roi.height ?? roi.radius * 2;
-        const layout = selectedReference.roiLayouts?.[roi.id] || {
-          x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
-        };
-        const selected = roi.id === selectedId;
-        ctx.strokeStyle = selected ? '#f59e0b' : selectedReference.kind === 'NG' ? '#f87171' : '#34d399';
-        ctx.lineWidth = selected ? 4 : 2;
-        ctx.setLineDash(selected ? [] : [8, 5]);
-        ctx.strokeRect(layout.x * canvas.width, layout.y * canvas.height, layout.width * canvas.width, layout.height * canvas.height);
-        ctx.setLineDash([]);
-        ctx.font = 'bold 14px monospace';
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.fillText(roi.name, layout.x * canvas.width + 4, Math.max(16, layout.y * canvas.height - 5));
-        if (selected) ctx.fillRect((layout.x + layout.width) * canvas.width - 9, (layout.y + layout.height) * canvas.height - 9, 18, 18);
-      }
+      drawReferenceOverlay();
+    };
+    image.onerror = () => {
+      loadedReferenceImageRef.current = null;
+      loadedReferenceIdRef.current = null;
     };
     image.src = selectedReference.imageUrl;
-  }, [isOpen, selectedReference, editedRevision.inspectionROIs, selectedId]);
+  }, [isOpen, selectedReference?.id, selectedReference?.imageUrl]);
+
+  useEffect(() => {
+    drawReferenceOverlay();
+  }, [selectedReference?.roiLayouts, selectedReference?.kind, editedRevision.inspectionROIs, selectedId]);
+
 
   const getReferenceCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = referenceCanvasRef.current!;
