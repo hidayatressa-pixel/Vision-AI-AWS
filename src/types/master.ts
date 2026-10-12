@@ -25,10 +25,25 @@ export interface ReferenceAnchor {
   description?: string;
 }
 
+export type ReferenceClass = 'OK' | 'NG';
+
+/** A normalized rectangle stored in top-left coordinates relative to one reference image. */
+export interface ReferenceRoiLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ReferenceImage {
   id: string;
   label: string;
   imageUrl: string;
+  /** Class label used by multi-reference visual classification. Legacy references default to OK. */
+  kind?: ReferenceClass;
+  /** Each reference image can have its own independently editable ROI layout, keyed by InspectionROI.id. */
+  roiLayouts?: Record<string, ReferenceRoiLayout>;
+  /** Legacy one-reference-per-ROI mapping, retained only for data migration. */
   roiId?: string;
   description?: string;
 }
