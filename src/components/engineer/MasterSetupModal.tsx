@@ -78,7 +78,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       ctx.setLineDash([6, 4]);
       ctx.strokeRect(dz.x * w, dz.y * h, dz.width * w, dz.height * h);
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.05)';
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.04)';
       ctx.fillRect(dz.x * w, dz.y * h, dz.width * w, dz.height * h);
       ctx.font = '10px monospace';
       ctx.fillStyle = '#06b6d4';
@@ -107,35 +107,6 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
           ctx.fillStyle = '#f59e0b';
           ctx.fillRect(left + rw - 7, top + rh - 7, 14, 14);
         }
-      }
-      ctx.textAlign = 'start';
-        ctx.fillText(anchor.name, x + 14, y - 6);
-      }
-
-      for (const roi of editedRevision.inspectionROIs) {
-        const x = roi.x * w;
-        const y = roi.y * h;
-        const selected = selectedItemType === 'ROI' && selectedId === roi.id;
-        // Blue = nominal/OK position. Yellow = absolute tolerance boundary.
-        ctx.strokeStyle = selected ? '#60a5fa' : '#3b82f6';
-        ctx.lineWidth = selected ? 3 : 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 22, 0, Math.PI * 2);
-        ctx.stroke();
-
-        const toleranceRadius = editedRevision.tolerance.maxPositionOffsetPx || 25;
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.arc(x, y, toleranceRadius, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.font = 'bold 11px monospace';
-        ctx.fillStyle = selected ? '#93c5fd' : '#60a5fa';
-        ctx.textAlign = 'center';
-        ctx.fillText(roi.name, x, y + 36);
       }
       ctx.textAlign = 'start';
     };
