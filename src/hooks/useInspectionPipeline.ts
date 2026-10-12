@@ -247,20 +247,26 @@ export function useInspectionPipeline({
         plcService.logTimelineEvent(
           'ALIGNMENT_STARTED',
           'VISION',
-          'Locating reference fiducials A, B, C, D'
+          'Using normalized camera coordinates for rectangular ROI comparison'
         );
 
         const opencvFrame = await preprocessInspectionFrame(candidateFrame);
         const gray = opencvFrame.gray;
 
         const alignStart = performance.now();
-        const alignment = alignmentEngine.calculateAlignment(
-          gray,
-          revision.masterWidth,
-          revision.masterHeight,
-          revision.anchors,
-          revision.tolerance
-        );
+        // Simple ROI MVP uses fixed normalized camera coordinates; no
+        // screw/fiducial alignment is required for this inspection mode.
+        const alignment: AlignmentResult = {
+          success: true,
+          translationX: 0,
+          translationY: 0,
+          rotationDeg: 0,
+          scale: 1,
+          confidence: 1,
+          matchedAnchorCount: 0,
+          totalAnchorCount: 0,
+          anchorPositions: [],
+        };
         const alignmentMs = performance.now() - alignStart;
 
         if (alignment.success) {
@@ -340,6 +346,7 @@ export function useInspectionPipeline({
             'POSITION_OUT_OF_TOLERANCE',
             'EXTRA_OBJECT_DETECTED',
             'INCORRECT_COUNT',
+            'VISUAL_MISMATCH',
           ]);
 
           const ngFingerprint = (sample: VisionSample) =>
@@ -396,6 +403,7 @@ export function useInspectionPipeline({
         'POSITION_OUT_OF_TOLERANCE',
         'EXTRA_OBJECT_DETECTED',
         'INCORRECT_COUNT',
+        'VISUAL_MISMATCH',
       ]);
 
       const ngFingerprint = (sample: VisionSample) =>
