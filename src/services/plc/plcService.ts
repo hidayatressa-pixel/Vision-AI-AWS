@@ -115,7 +115,7 @@ class PLCService {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<PLCConfiguration>;
-        this.config = { ...DEFAULT_CONFIG, ...parsed, tags: { ...DEFAULT_CONFIG.tags, ...(parsed.tags || {}) } };
+        this.config = { ...DEFAULT_CONFIG, ...parsed, enabled: false, triggerMode: 'AUTO_CAMERA', tags: { ...DEFAULT_CONFIG.tags, ...(parsed.tags || {}) } };
       }
     } catch {
       // Use defaults
@@ -123,7 +123,7 @@ class PLCService {
   }
 
   public saveConfig(newConfig: PLCConfiguration) {
-    this.config = { ...DEFAULT_CONFIG, ...newConfig, tags: { ...DEFAULT_CONFIG.tags, ...newConfig.tags } };
+    this.config = { ...DEFAULT_CONFIG, ...newConfig, enabled: false, triggerMode: 'AUTO_CAMERA', tags: { ...DEFAULT_CONFIG.tags, ...newConfig.tags } };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
     } catch {
