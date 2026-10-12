@@ -369,15 +369,25 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
   const handleReferenceCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = referenceCanvasRef.current;
-    if (!canvas || !selectedReference || !selectedRoi) return;
+    if (!canvas || !selectedReference) return;
     const point = getReferenceCanvasPoint(e);
+    const target = [...editedRevision.inspectionROIs].reverse().find((roi) => {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      const layout = selectedReference.roiLayouts?.[roi.id] || {
+        x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+      };
+      return point.x >= layout.x * canvas.width && point.x <= (layout.x + layout.width) * canvas.width &&
+        point.y >= layout.y * canvas.height && point.y <= (layout.y + layout.height) * canvas.height;
+    });
+    if (!target) return;
     canvas.setPointerCapture(e.pointerId);
     referencePointerIdRef.current = e.pointerId;
-    const roi = selectedRoi;
-    const width = roi.width ?? roi.radius * 2;
-    const height = roi.height ?? roi.radius * 2;
-    const layout = selectedReference.roiLayouts?.[roi.id] || {
-      x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+    setSelectedId(target.id);
+    const width = target.width ?? target.radius * 2;
+    const height = target.height ?? target.radius * 2;
+    const layout = selectedReference.roiLayouts?.[target.id] || {
+      x: Math.max(0, target.x - width / 2), y: Math.max(0, target.y - height / 2), width, height,
     };
     const right = (layout.x + layout.width) * canvas.width;
     const bottom = (layout.y + layout.height) * canvas.height;
