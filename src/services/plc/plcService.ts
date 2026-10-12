@@ -319,7 +319,9 @@ class PLCService {
     this.currentSignals.inspectionError = false;
     this.currentSignals.processPermit = false;
 
-    this.adapter.clearResultSignals();
+    if (this.config.enabled) {
+      void this.adapter.clearResultSignals();
+    }
 
     this.logTimelineEvent(
       'CYCLE_STARTED',
@@ -352,7 +354,7 @@ class PLCService {
         { judgement: payload.judgement, detected: payload.detectedCount, expected: payload.expectedCount }
       );
       this.notify();
-      return { interlockGranted: false, ackReceived: true, commLatencyMs: 0 };
+      return { interlockGranted: false, ackReceived: false, commLatencyMs: 0 };
     }
 
     const sendTime = performance.now();
