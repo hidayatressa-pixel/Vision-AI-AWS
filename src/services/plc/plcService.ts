@@ -19,7 +19,8 @@ import { PLCAdapter } from './plcAdapter';
 import { SimulatedPLCAdapter } from './simulatedPlcAdapter';
 
 const DEFAULT_CONFIG: PLCConfiguration = {
-  enabled: true,
+  // MVP mode: inspection runs locally without PLC communication.
+  enabled: false,
   protocol: 'SIMULATION',
   ipAddress: '192.168.1.100',
   port: 502,
@@ -334,6 +335,26 @@ class PLCService {
     ackReceived: boolean;
     commLatencyMs: number;
   }> {
+    // PLC-disabled MVP: retain the vision judgement without transmitting
+    // outputs or waiting for a hardware/simulator ACK. This is not a safety
+    // interlock and must not be used to control production machinery.
+    if (!this.config.enabled) {
+      this.handshakeState.lastInspectionId = payload.inspectionId;
+      this.handshakeState.lastResultSent = payload.judgement;
+      this.handshakeState.ackPending = false;
+      this.handshakeState.ackReceived = false;
+      this.handshakeState.interlockState = 'WAITING_INSPECTION';
+      this.currentSignals.processPermit = false;
+      this.logTimelineEvent(
+        'PLC_BYPASSED_MVP',
+        'VISION',
+        `PLC disabled for MVP; vision judgement retained: ${payload.judgement}`,
+        { judgement: payload.judgement, detected: payload.detectedCount, expected: payload.expectedCount }
+      );
+      this.notify();
+      return { interlockGranted: false, ackReceived: true, commLatencyMs: 0 };
+    }
+
     const sendTime = performance.now();
     this.handshakeState.lastInspectionId = payload.inspectionId;
     this.handshakeState.lastResultSent = payload.judgement;
@@ -432,6 +453,14 @@ class PLCService {
   // keep the station blocked and surface a communication fault.
   public async clearInterlock(): Promise<boolean> {
     this.currentSignals.processPermit = false;
+
+    if (!this.config.enabled) {
+      this.handshakeState.interlockState = 'WAITING_INSPECTION';
+      this.handshakeState.ackPending = false;
+      this.logTimelineEvent('PART_REMOVED', 'VISION', 'PLC disabled; local inspection is ready for the next part');
+      this.notify();
+      return true;
+    }
 
     const resetOk = await this.adapter.resetInterlock();
 
