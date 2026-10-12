@@ -21,7 +21,6 @@ import {
 } from '../types/inspection';
 import { MasterProduct, MasterRevision } from '../types/master';
 import { PLCHandshakeState, PLCLiveSignals } from '../types/plc';
-import { alignmentEngine } from '../vision/alignmentEngine';
 import { getRegionStats, toGrayscale } from '../vision/imageUtils';
 import { PresenceDetector } from '../vision/presenceDetector';
 import { roiInspector } from '../vision/roiInspector';
@@ -540,7 +539,7 @@ export function useInspectionPipeline({
       // Keep product quality judgement separate from PLC communication status.
       // A missing ACK must keep the machine interlocked, but must not erase a
       // valid vision OK/NG result from production counters and inspection history.
-      if (!plcHandshakeResult.ackReceived) {
+      if (plcService.getConfig().enabled && !plcHandshakeResult.ackReceived) {
         const handshakeFault = 'PLC result ACK was not received; process remains blocked';
         resultReason = resultReason
           ? `${resultReason} — ${handshakeFault}`
