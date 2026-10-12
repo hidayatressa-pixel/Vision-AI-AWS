@@ -15,7 +15,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { InspectionROI, MasterProduct, MasterRevision } from '../../types/master';
+import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
@@ -43,14 +43,40 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const referenceDraggingRef = useRef(false);
+  const referencePointerIdRef = useRef<number | null>(null);
+  const referencePointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
+  const referencePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
   const isDraggingRef = useRef<boolean>(false);
   const activePointerIdRef = useRef<number | null>(null);
   const pointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const pointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
 
   useEffect(() => {
-    setEditedRevision({ ...revision });
-    setSelectedReferenceId(revision.referenceImages?.[0]?.id || '');
+    const oldReferences = revision.referenceImages || [];
+    const legacyOk = oldReferences.find((item) => !item.kind && item.imageUrl);
+    const slots: ReferenceImage[] = [];
+    const defaultLayout = (roi: InspectionROI): ReferenceRoiLayout => {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      return { x: Math.max(0, Math.min(1 - width, roi.x - width / 2)), y: Math.max(0, Math.min(1 - height, roi.y - height / 2)), width, height };
+    };
+    (['OK', 'NG'] as const).forEach((kind) => {
+      for (let index = 0; index < 4; index++) {
+        const source = oldReferences.filter((item) => item.kind === kind)[index] ||
+          (kind === 'OK' && index === 0 ? legacyOk : undefined);
+        const id = source?.id || `${revision.id}-${kind.toLowerCase()}-${index + 1}`;
+        const roiLayouts: Record<string, ReferenceRoiLayout> = {};
+        revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source?.roiLayouts?.[roi.id] || defaultLayout(roi); });
+        slots.push({
+          id, label: `${kind} Reference ${index + 1}`, imageUrl: source?.imageUrl || '', kind, roiLayouts,
+          description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
+        });
+      }
+    });
+    setEditedRevision({ ...revision, referenceImages: slots });
+    setSelectedReferenceId(slots[0]?.id || '');
     setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
 
@@ -422,15 +448,15 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-white">
                     <Images className="w-4 h-4 text-cyan-400" />
-                    Reference Image Set
+                    Reference Images · 4 OK + 4 NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Upload one approved OK reference image for each rectangular inspection area.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use four OK and four NG examples.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
                     <div className="text-cyan-300">Selected: {selectedReference.label}</div>
-                    <div className="text-slate-500">Linked ROI: {selectedReference.roiId || '—'}</div>
+                    <div className={selectedReference.kind === 'NG' ? 'text-red-300' : 'text-emerald-300'}>Class: {selectedReference.kind || 'OK'}</div>
                   </div>
                 )}
               </div>
@@ -443,16 +469,14 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       key={reference.id}
                       onClick={() => {
                         setSelectedReferenceId(reference.id);
-                        if (reference.roiId) {
-                          setSelectedId(reference.roiId);
-                          setSelectedItemType('ROI');
-                        }
+                        setSelectedItemType('ROI');
+                        if (!selectedId && editedRevision.inspectionROIs[0]) setSelectedId(editedRevision.inspectionROIs[0].id);
                       }}
                       className={`group shrink-0 w-28 rounded-xl border p-1.5 cursor-pointer transition-all ${
                         isSelected ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-950/30' : 'border-slate-800 bg-slate-900 hover:border-slate-600'
                       }`}
                     >
-                      <div className="aspect-square rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
+                      <div className={`aspect-square rounded-lg overflow-hidden bg-slate-950 border ${reference.kind === 'NG' ? 'border-red-500/30' : 'border-emerald-500/30'} flex items-center justify-center`}>
                         {reference.imageUrl ? (
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
