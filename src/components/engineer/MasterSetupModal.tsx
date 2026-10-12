@@ -1,6 +1,6 @@
 /**
  * Master Setup & Calibration Modal
- * Simple rectangular ROI editor with approved OK reference comparison.
+ * Simple rectangular ROI editor with per-reference OK/NG comparison.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -466,7 +466,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Draw rectangular inspection areas and compare them with approved OK reference images.
+                Draw rectangular inspection areas, then upload four OK and four NG reference images and adjust each reference layout independently.
               </p>
             </div>
           </div>
@@ -525,7 +525,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   <Images className="h-10 w-10 text-slate-600" />
                   <div>
                     <div className="text-sm font-semibold text-white">Master image not configured</div>
-                    <div className="mt-1 text-xs text-slate-500">Upload the approved full-view image to define the alignment reference.</div>
+                    <div className="mt-1 text-xs text-slate-500">Upload a full-view image to initialize camera ROI coordinates.</div>
                   </div>
                   <label className="cursor-pointer rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20">
                     Upload Master Image
@@ -597,7 +597,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
               <div>
                 <div className="text-xs font-semibold text-white">Master Image</div>
-                <div className="text-[10px] font-mono text-slate-500">Full-view image used as the layout and alignment reference.</div>
+                <div className="text-[10px] font-mono text-slate-500">Full-view image used to initialize the camera-side ROI layout.</div>
               </div>
               <label className="shrink-0 cursor-pointer rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-[10px] font-semibold text-cyan-300 hover:border-cyan-500/50">
                 {editedRevision.masterImageUrl ? 'Replace' : 'Upload'}
@@ -792,7 +792,6 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                               }));
                               if (selectedId === roi.id) {
                                 setSelectedId(remaining[0]?.id || '');
-                                setSelectedReferenceId(editedRevision.referenceImages?.find((reference) => reference.roiId === remaining[0]?.id)?.id || '');
                               }
                             }}
                             className="rounded-md p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-300"
@@ -842,7 +841,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       className="w-full accent-cyan-500"
                     />
                     <p className="text-[10px] text-slate-500 font-mono mt-1">
-                      A higher threshold requires a closer visual match to the approved OK reference.
+                      A higher threshold requires stronger similarity to the OK class than to the NG class.
                     </p>
                   </div>
 
@@ -872,7 +871,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Position, screw-count, and rotation tolerances are not used by Simple ROI comparison. Each rectangle is compared directly with its own approved OK reference image.
+                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against four OK and four NG reference crops, using the layout saved separately for each reference image.
                 </div>
               </div>
             )}
