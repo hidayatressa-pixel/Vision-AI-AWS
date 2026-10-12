@@ -35,7 +35,7 @@ function imageToPatch(image: HTMLImageElement): Float32Array | null {
     for (let i = 0; i < gray.length; i++) {
       gray[i] = pixels[i * 4] * 0.299 + pixels[i * 4 + 1] * 0.587 + pixels[i * 4 + 2] * 0.114;
     }
-    return normalizePatch(gray);
+    return gray;
   } catch {
     return null;
   }
@@ -86,13 +86,24 @@ function currentRoiPatch(
       }
     }
   }
-  return normalizePatch(gray);
+  return gray;
 }
 
 function comparePatches(reference: Float32Array, current: Float32Array): number {
-  let error = 0;
-  for (let i = 0; i < reference.length; i++) error += Math.abs(reference[i] - current[i]);
-  return Math.max(0, Math.min(1, 1 - error / Math.max(1, reference.length) / 2));
+  const referenceStructure = normalizePatch(reference);
+  const currentStructure = normalizePatch(current);
+  let structuralError = 0;
+  let intensityError = 0;
+  for (let i = 0; i < reference.length; i++) {
+    structuralError += Math.abs(referenceStructure[i] - currentStructure[i]);
+    intensityError += Math.abs(reference[i] - current[i]) / 255;
+  }
+  const count = Math.max(1, reference.length);
+  const structureDifference = structuralError / count / 2;
+  const brightnessDifference = intensityError / count;
+  // Mostly compare structure, but preserve sensitivity to real brightness changes.
+  const combinedDifference = structureDifference * 0.75 + brightnessDifference * 0.25;
+  return Math.max(0, Math.min(1, 1 - combinedDifference));
 }
 
 export class ROIInspector {
