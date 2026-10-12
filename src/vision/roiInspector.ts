@@ -108,7 +108,7 @@ export class ROIInspector {
   ): Promise<{
     roiResults: ROIInspectionResult[];
     extraObjects: ExtraDetectedObject[];
-    detectedScrewCount: number;
+    matchedRoiCount: number;
   }> {
     // Simple ROI mode uses normalized camera coordinates directly. Alignment
     // and screw-count parameters remain in the signature for compatibility.
@@ -119,7 +119,7 @@ export class ROIInspector {
 
     const referenceByRoi = new Map(referenceImages.map((reference) => [reference.roiId || reference.id, reference]));
     const results: ROIInspectionResult[] = [];
-    let matchedCount = 0;
+    let matchedRoiCount = 0;
 
     for (const roi of rois) {
       const reference = referenceByRoi.get(roi.id);
@@ -129,10 +129,8 @@ export class ROIInspector {
       const similarity = hasEvidence ? comparePatches(referencePatch!, current!) : 0;
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
       const passed = hasEvidence && similarity >= threshold;
-      if (passed) matchedCount++;
+      if (passed) matchedRoiCount++;
 
-      const roiWidth = roi.width ?? roi.radius * 2;
-      const roiHeight = roi.height ?? roi.radius * 2;
       results.push({
         roiId: roi.id,
         roiName: roi.name,
@@ -153,11 +151,9 @@ export class ROIInspector {
             ? undefined
             : `${roi.name}: visual mismatch against approved OK reference (${Math.round(similarity * 100)}% similarity)`,
       });
-      void roiWidth;
-      void roiHeight;
     }
 
-    return { roiResults: results, extraObjects: [], detectedScrewCount: matchedCount };
+    return { roiResults: results, extraObjects: [], matchedRoiCount };
   }
 }
 
