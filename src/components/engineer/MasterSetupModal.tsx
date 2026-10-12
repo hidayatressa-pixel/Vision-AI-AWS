@@ -617,7 +617,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>The camera ROI is compared with its approved OK reference. Alignment anchors and screw detection are not used.</span>
+              <span>Each reference image has its own editable ROI layout. The live crop is classified against four OK and four NG examples.</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
@@ -698,24 +698,23 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     type="button"
                     onClick={() => {
                       const id = 'roi-' + Date.now();
-                      const referenceId = 'ref-' + Date.now();
                       const newRoi: InspectionROI = {
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
                         minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast',
                       };
+                      const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
                         ...prev,
                         expectedObjectCount: prev.inspectionROIs.length + 1,
                         inspectionROIs: [...prev.inspectionROIs, newRoi],
-                        referenceImages: [...(prev.referenceImages || []), {
-                          id: referenceId, label: newRoi.name + ' OK', imageUrl: '', roiId: id,
-                          description: 'Approved OK image for this rectangular ROI',
-                        }],
+                        referenceImages: prev.referenceImages.map((reference) => ({
+                          ...reference,
+                          roiLayouts: { ...(reference.roiLayouts || {}), [id]: defaultLayout },
+                        })),
                       }));
                       setSelectedId(id);
-                      setSelectedReferenceId(referenceId);
                       setSelectedItemType('ROI');
                     }}
                     className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-2 text-[10px] font-bold text-emerald-300"
@@ -751,8 +750,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         onClick={() => {
                           setSelectedId(roi.id);
                           setSelectedItemType('ROI');
-                          const matchingReference = editedRevision.referenceImages?.find((reference) => reference.roiId === roi.id);
-                          if (matchingReference) setSelectedReferenceId(matchingReference.id);
+                          // Keep the selected reference independent from the selected ROI layout.
                         }}
                         className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
                           isSelected
@@ -786,7 +784,11 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                                 ...prev,
                                 expectedObjectCount: remaining.length,
                                 inspectionROIs: remaining,
-                                referenceImages: (prev.referenceImages || []).filter((reference) => reference.roiId !== roi.id),
+                                referenceImages: (prev.referenceImages || []).map((reference) => {
+                                  const roiLayouts = { ...(reference.roiLayouts || {}) };
+                                  delete roiLayouts[roi.id];
+                                  return { ...reference, roiLayouts };
+                                }),
                               }));
                               if (selectedId === roi.id) {
                                 setSelectedId(remaining[0]?.id || '');
@@ -801,7 +803,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Width: {((roi.width ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
-                          <div>Reference: {editedRevision.referenceImages?.some((reference) => reference.roiId === roi.id && reference.imageUrl) ? "Ready" : "Missing"}</div>
+                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length === 4 && editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length === 4 ? "8 refs" : "Need 4 OK + 4 NG"}</div>
                         </div>
                       </div>
                     );
