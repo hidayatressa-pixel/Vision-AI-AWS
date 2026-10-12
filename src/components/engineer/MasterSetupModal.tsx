@@ -298,6 +298,97 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const selectedReference = editedRevision.referenceImages?.find((reference) => reference.id === selectedReferenceId);
   const selectedRoi = editedRevision.inspectionROIs.find((roi) => roi.id === selectedId) || editedRevision.inspectionROIs[0];
 
+  useEffect(() => {
+    if (!isOpen || !selectedReference?.imageUrl) return;
+    const canvas = referenceCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      canvas.width = image.naturalWidth || 800;
+      canvas.height = image.naturalHeight || 600;
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const roi of editedRevision.inspectionROIs) {
+        const width = roi.width ?? roi.radius * 2;
+        const height = roi.height ?? roi.radius * 2;
+        const layout = selectedReference.roiLayouts?.[roi.id] || {
+          x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+        };
+        const selected = roi.id === selectedId;
+        ctx.strokeStyle = selected ? '#f59e0b' : selectedReference.kind === 'NG' ? '#f87171' : '#34d399';
+        ctx.lineWidth = selected ? 4 : 2;
+        ctx.setLineDash(selected ? [] : [8, 5]);
+        ctx.strokeRect(layout.x * canvas.width, layout.y * canvas.height, layout.width * canvas.width, layout.height * canvas.height);
+        ctx.setLineDash([]);
+        ctx.font = 'bold 14px monospace';
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fillText(roi.name, layout.x * canvas.width + 4, Math.max(16, layout.y * canvas.height - 5));
+        if (selected) ctx.fillRect((layout.x + layout.width) * canvas.width - 9, (layout.y + layout.height) * canvas.height - 9, 18, 18);
+      }
+    };
+    image.src = selectedReference.imageUrl;
+  }, [isOpen, selectedReference, editedRevision.inspectionROIs, selectedId]);
+
+  const getReferenceCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = referenceCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+    const renderedWidth = canvas.width * scale;
+    const renderedHeight = canvas.height * scale;
+    return {
+      x: (e.clientX - rect.left - (rect.width - renderedWidth) / 2) / scale,
+      y: (e.clientY - rect.top - (rect.height - renderedHeight) / 2) / scale,
+    };
+  };
+
+  const handleReferenceCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = referenceCanvasRef.current;
+    if (!canvas || !selectedReference || !selectedRoi) return;
+    const point = getReferenceCanvasPoint(e);
+    canvas.setPointerCapture(e.pointerId);
+    referencePointerIdRef.current = e.pointerId;
+    const roi = selectedRoi;
+    const width = roi.width ?? roi.radius * 2;
+    const height = roi.height ?? roi.radius * 2;
+    const layout = selectedReference.roiLayouts?.[roi.id] || {
+      x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+    };
+    const right = (layout.x + layout.width) * canvas.width;
+    const bottom = (layout.y + layout.height) * canvas.height;
+    referencePointerModeRef.current = point.x >= right - 18 && point.y >= bottom - 18 ? 'RESIZE' : 'MOVE';
+    referencePointerStartRef.current = { ...layout, pointerX: point.x, pointerY: point.y };
+    referenceDraggingRef.current = true;
+  };
+
+  const handleReferenceCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!referenceDraggingRef.current || referencePointerIdRef.current !== e.pointerId || !selectedReference || !selectedRoi) return;
+    const canvas = referenceCanvasRef.current;
+    const start = referencePointerStartRef.current;
+    if (!canvas || !start) return;
+    const point = getReferenceCanvasPoint(e);
+    const dx = (point.x - start.pointerX) / canvas.width;
+    const dy = (point.y - start.pointerY) / canvas.height;
+    setEditedRevision((prev) => ({
+      ...prev,
+      referenceImages: prev.referenceImages.map((reference) => {
+        if (reference.id !== selectedReference.id) return reference;
+        const old = reference.roiLayouts?.[selectedRoi.id] || { x: start.x, y: start.y, width: start.width, height: start.height };
+        const next: ReferenceRoiLayout = referencePointerModeRef.current === 'RESIZE'
+          ? { ...old, width: Math.max(0.03, Math.min(1 - old.x, start.width + dx)), height: Math.max(0.03, Math.min(1 - old.y, start.height + dy)) }
+          : { ...old, x: Math.max(0, Math.min(1 - old.width, start.x + dx)), y: Math.max(0, Math.min(1 - old.height, start.y + dy)) };
+        return { ...reference, roiLayouts: { ...(reference.roiLayouts || {}), [selectedRoi.id]: next } };
+      }),
+    }));
+  };
+
+  const handleReferenceCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    referenceDraggingRef.current = false;
+    referencePointerIdRef.current = null;
+    referencePointerStartRef.current = null;
+    try { referenceCanvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
+  };
+
   const handleReplaceReferenceImage = (referenceId: string, file: File | null) => {
     if (!file) return;
     const reader = new FileReader();
@@ -632,21 +723,21 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 </div>
 
                 {selectedReference && (
-                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 mb-2">Selected Golden Reference</div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-20 rounded-lg border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0">
-                        {selectedReference.imageUrl ? (
-                          <img src={selectedReference.imageUrl} alt={selectedReference.label} className="w-full h-full rounded-lg object-cover" />
-                        ) : (
-                          <span className="text-[8px] font-mono font-bold text-amber-400 text-center">UPLOAD</span>
-                        )}
+                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className={`text-[10px] font-mono uppercase tracking-wider mb-1 ${selectedReference.kind === 'NG' ? 'text-red-300' : 'text-emerald-300'}`}>Edit layout · {selectedReference.label}</div>
+                        <div className="text-[10px] text-slate-400">Select an ROI below, then drag its rectangle or bottom-right handle.</div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-white">{selectedReference.label}</div>
-                        <div className="text-[10px] font-mono text-slate-500 mt-1">{selectedReference.description || 'Approved OK reference for the selected rectangle.'}</div>
-                      </div>
+                      <span className="text-[10px] font-mono text-slate-500">{selectedRoi?.name || 'No ROI'}</span>
                     </div>
+                    {selectedReference.imageUrl ? (
+                      <div className="h-64 rounded-lg overflow-hidden border border-slate-700 bg-slate-950 flex items-center justify-center">
+                        <canvas ref={referenceCanvasRef} onPointerDown={handleReferenceCanvasPointerDown} onPointerMove={handleReferenceCanvasPointerMove} onPointerUp={handleReferenceCanvasPointerUp} onPointerCancel={handleReferenceCanvasPointerUp} style={{ touchAction: 'none' }} className="w-full h-full object-contain cursor-crosshair" />
+                      </div>
+                    ) : (
+                      <div className="h-28 rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-xs text-amber-300">Upload this reference image first to edit its layout.</div>
+                    )}
                   </div>
                 )}
 
