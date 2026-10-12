@@ -1,6 +1,6 @@
 /**
  * Master Setup & Calibration Modal
- * Interactive visual canvas editor for Anchors A, B, C, D, ROIs, and Tolerances.
+ * Simple rectangular ROI editor with approved OK reference comparison.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -51,9 +51,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   useEffect(() => {
     setEditedRevision({ ...revision });
     setSelectedReferenceId(revision.referenceImages?.[0]?.id || '');
+    setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
 
-  // Redraw master image with interactive anchors and ROIs
+  // Redraw master image with interactive rectangular ROIs
   useEffect(() => {
     if (!isOpen) return;
     const canvas = canvasRef.current;
@@ -269,6 +270,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   };
 
   const selectedReference = editedRevision.referenceImages?.find((reference) => reference.id === selectedReferenceId);
+  const selectedRoi = editedRevision.inspectionROIs.find((roi) => roi.id === selectedId) || editedRevision.inspectionROIs[0];
 
   const handleReplaceReferenceImage = (referenceId: string, file: File | null) => {
     if (!file) return;
@@ -697,42 +699,41 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             {activeTab === 'TOLERANCES' && (
               <div className="space-y-4">
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
-                  {/* Position Offset Tolerance */}
                   <div>
                     <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Position Tolerance:</span>
+                      <span className="text-slate-300">Selected ROI Similarity Threshold:</span>
                       <span className="text-cyan-400 font-bold">
-                        ±{editedRevision.tolerance.maxPositionOffsetMm} mm ({editedRevision.tolerance.maxPositionOffsetPx} px)
+                        {selectedRoi ? (selectedRoi.minConfidence * 100).toFixed(0) + '%' : 'Select ROI'}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min="1.0"
-                      max="6.0"
-                      step="0.5"
-                      value={editedRevision.tolerance.maxPositionOffsetMm}
+                      min="0.5"
+                      max="0.98"
+                      step="0.02"
+                      disabled={!selectedRoi}
+                      value={selectedRoi?.minConfidence ?? 0.75}
                       onChange={(e) => {
-                        const mm = parseFloat(e.target.value);
+                        const threshold = parseFloat(e.target.value);
+                        if (!selectedRoi) return;
                         setEditedRevision((prev) => ({
                           ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            maxPositionOffsetMm: mm,
-                            maxPositionOffsetPx: Math.round(mm * 10),
-                          },
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, minConfidence: threshold } : roi
+                          ),
                         }));
                       }}
                       className="w-full accent-cyan-500"
                     />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">
+                      A higher threshold requires a closer visual match to the approved OK reference.
+                    </p>
                   </div>
 
-                  {/* Stabilization Delay */}
                   <div>
                     <div className="flex justify-between text-xs font-mono mb-1">
                       <span className="text-slate-300">Stabilization Delay:</span>
-                      <span className="text-cyan-400 font-bold">
-                        {editedRevision.tolerance.stabilizationDelayMs} ms
-                      </span>
+                      <span className="text-cyan-400 font-bold">{editedRevision.tolerance.stabilizationDelayMs} ms</span>
                     </div>
                     <input
                       type="range"
@@ -741,80 +742,25 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       step="50"
                       value={editedRevision.tolerance.stabilizationDelayMs}
                       onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
+                        const value = parseInt(e.target.value, 10);
                         setEditedRevision((prev) => ({
                           ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            stabilizationDelayMs: val,
-                          },
+                          tolerance: { ...prev.tolerance, stabilizationDelayMs: value },
                         }));
                       }}
                       className="w-full accent-cyan-500"
                     />
                     <p className="text-[10px] text-slate-500 font-mono mt-1">
-                      Time camera waits after part entry to ensure vibration/settle stops.
+                      Wait time after the product enters the camera zone before comparison.
                     </p>
                   </div>
-
-                  {/* Minimum Screw Confidence */}
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Detection Confidence:</span>
-                      <span className="text-cyan-400 font-bold">
-                        {(editedRevision.tolerance.minScrewConfidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.4"
-                      max="0.9"
-                      step="0.05"
-                      value={editedRevision.tolerance.minScrewConfidence}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setEditedRevision((prev) => ({
-                          ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            minScrewConfidence: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-cyan-500"
-                    />
-                  </div>
-
-                  {/* Rotation Tolerance */}
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Max Rotation Allowed:</span>
-                      <span className="text-cyan-400 font-bold">
-                        ±{editedRevision.tolerance.maxRotationToleranceDeg}°
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="30"
-                      step="1"
-                      value={editedRevision.tolerance.maxRotationToleranceDeg}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        setEditedRevision((prev) => ({
-                          ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            maxRotationToleranceDeg: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-cyan-500"
-                    />
-                  </div>
+                </div>
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
+                  Position, screw-count, and rotation tolerances are not used by Simple ROI comparison. Each rectangle is compared directly with its own approved OK reference image.
                 </div>
               </div>
             )}
+
           </div>
         </div>
       </div>
