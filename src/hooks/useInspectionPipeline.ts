@@ -242,11 +242,11 @@ export function useInspectionPipeline({
       const samples: VisionSample[] = [];
 
       const inspectVisionFrame = async (candidateFrame: ImageData): Promise<VisionSample> => {
-        setState('ALIGNING');
+        setState('INSPECTING');
         plcService.logTimelineEvent(
-          'ALIGNMENT_STARTED',
+          'ROI_COMPARISON_STARTED',
           'VISION',
-          'Using normalized camera coordinates for rectangular ROI comparison'
+          'Comparing rectangular camera ROIs with approved OK reference images'
         );
 
         const opencvFrame = await preprocessInspectionFrame(candidateFrame);
@@ -268,19 +268,11 @@ export function useInspectionPipeline({
         };
         const alignmentMs = performance.now() - alignStart;
 
-        if (alignment.success) {
-          plcService.logTimelineEvent(
-            'ALIGNMENT_SUCCESS',
-            'VISION',
-            `Aligned with ${alignment.matchedAnchorCount} anchors (Rot: ${alignment.rotationDeg}°)`
-          );
-        } else {
-          plcService.logTimelineEvent(
-            'ALIGNMENT_FAILED',
-            'VISION',
-            alignment.errorMessage || 'Anchors not found'
-          );
-        }
+        plcService.logTimelineEvent(
+          'ROI_COORDINATES_READY',
+          'VISION',
+          'Fixed-camera normalized coordinates active; fiducial alignment bypassed'
+        );
 
         let roiResults: ROIInspectionResult[] = [];
         let extraObjects: ExtraDetectedObject[] = [];
