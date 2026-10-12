@@ -1,4 +1,4 @@
-import { MasterRevision } from '../types/master';
+import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
 
 export interface SetupValidationCheck {
   label: string;
@@ -7,9 +7,22 @@ export interface SetupValidationCheck {
   error: string;
 }
 
+function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): ReferenceRoiLayout {
+  const width = roi.width ?? roi.radius * 2;
+  const height = roi.height ?? roi.radius * 2;
+  return {
+    x: Math.max(0, Math.min(1 - width, roi.x - width / 2)),
+    y: Math.max(0, Math.min(1 - height, roi.y - height / 2)),
+    width,
+    height,
+  };
+}
+
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
+  const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+  const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
   const zone = revision.detectionZone;
   const detectionZoneValid = Boolean(zone) &&
@@ -38,11 +51,20 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       roi.x + width / 2 <= zone.x + zone.width &&
       roi.y + height / 2 <= zone.y + zone.height;
   });
-  const referencesMapOneToOne = references.length === rois.length &&
-    new Set(references.map((reference) => reference.roiId)).size === rois.length &&
-    rois.every((roi) => references.some((reference) =>
-      reference.roiId === roi.id && Boolean(reference.imageUrl?.trim())
-    ));
+  const referenceIdsUnique = new Set(references.map((reference) => reference.id)).size === references.length &&
+    references.every((reference) => Boolean(reference.id?.trim()));
+  const referenceLayoutsValid = references.every((reference) => rois.every((roi) => {
+    const layout = reference.roiLayouts?.[roi.id] || defaultLayout(roi);
+    return isNormalized(layout.x) && isNormalized(layout.y) &&
+      Number.isFinite(layout.width) && layout.width > 0 && layout.width <= 1 &&
+      Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
+      layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
+  }));
+  const allReferencesUploaded = references.length === 8 &&
+    okReferences.length === 4 && ngReferences.length === 4 &&
+    references.every((reference) => Boolean(reference.imageUrl?.trim()));
+  const layoutCoverage = references.length === 8 &&
+    references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
     {
@@ -55,13 +77,13 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       label: 'Rectangular ROIs',
       valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roisWithinDetectionZone,
       detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? ' · outside detection zone' : ''}`,
-      error: 'Configure at least one rectangular ROI with valid normalized position and size inside the detection zone.',
+      error: 'Configure at least one valid rectangular ROI inside the detection zone.',
     },
     {
       label: 'Master image',
       valid: Boolean(revision.masterImageUrl?.trim()),
       detail: revision.masterImageUrl?.trim() ? 'Ready' : 'Missing',
-      error: 'Upload a master image for ROI setup.',
+      error: 'Upload a master image to initialize the inspection layout.',
     },
     {
       label: 'Master resolution',
@@ -70,10 +92,16 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       error: 'Master image dimensions are invalid.',
     },
     {
-      label: 'Approved OK references',
-      valid: referencesMapOneToOne,
-      detail: `${references.filter((reference) => Boolean(reference.imageUrl?.trim() && rois.some((roi) => roi.id === reference.roiId))).length}/${rois.length} mapped`,
-      error: 'Upload one approved OK reference image for every rectangular ROI.',
+      label: 'OK/NG reference images',
+      valid: allReferencesUploaded,
+      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 NG`,
+      error: 'Upload exactly 4 OK and 4 NG reference images.',
+    },
+    {
+      label: 'Per-reference ROI layout',
+      valid: referenceLayoutsValid && layoutCoverage,
+      detail: layoutCoverage ? 'ROI layout saved for all 8 references' : 'Some reference layouts need initialization',
+      error: 'Configure a valid rectangle layout for every ROI on each of the 8 reference images.',
     },
     {
       label: 'Detection zone',
@@ -83,9 +111,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Reference IDs',
-      valid: new Set(references.map((reference) => reference.id)).size === references.length &&
-        references.every((reference) => Boolean(reference.id?.trim())),
-      detail: new Set(references.map((reference) => reference.id)).size === references.length ? 'Unique' : 'Duplicate IDs',
+      valid: referenceIdsUnique,
+      detail: referenceIdsUnique ? 'Unique' : 'Duplicate or empty IDs',
       error: 'Reference image IDs must be unique.',
     },
     {
