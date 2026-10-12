@@ -529,12 +529,15 @@ export function useInspectionPipeline({
         cycleTimeMs: totalCycleMs,
       });
 
-      // A missing PLC ACK is a system fault. Never report the product as OK when
-      // the machine-side handshake could not be confirmed.
+      // Keep product quality judgement separate from PLC communication status.
+      // A missing ACK must keep the machine interlocked, but must not erase a
+      // valid vision OK/NG result from production counters and inspection history.
       if (!plcHandshakeResult.ackReceived) {
-        resultJudgement = 'ERROR';
-        resultReason = 'PLC result ACK was not received; process remains blocked';
-        plcService.logTimelineEvent('HANDSHAKE_FAILED', 'INTERLOCK', resultReason);
+        const handshakeFault = 'PLC result ACK was not received; process remains blocked';
+        resultReason = resultReason
+          ? `${resultReason} — ${handshakeFault}`
+          : handshakeFault;
+        plcService.logTimelineEvent('HANDSHAKE_FAILED', 'INTERLOCK', handshakeFault);
       }
 
       const identity = getRuntimeIdentity();
