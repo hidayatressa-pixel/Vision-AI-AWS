@@ -50,6 +50,9 @@ export interface ReferenceImage {
 
 export type InspectionObjectType = 'screw' | 'connector' | 'clip' | 'label' | 'component';
 
+/** Selects which visual signal receives the greatest weight during reference comparison. */
+export type RoiComparisonMode = 'BALANCED' | 'STRUCTURE_FIRST' | 'INTENSITY_FIRST';
+
 export interface InspectionROI {
   id: string;
   name: string;
@@ -64,6 +67,8 @@ export interface InspectionROI {
   minConfidence: number;
   isRequired: boolean;
   expectedPolarity?: 'bright_on_dark' | 'dark_on_bright' | 'contrast';
+  /** Backward-compatible default is BALANCED. */
+  comparisonMode?: RoiComparisonMode;
 }
 
 export interface ToleranceConfig {
@@ -81,6 +86,8 @@ export interface ToleranceConfig {
   detectionZonePresenceThreshold: number;
 }
 
+export type RoiBoundaryPolicy = 'STRICT' | 'WARNING' | 'DISABLED';
+
 export interface MasterRevision {
   id: string;
   masterId: string;
@@ -95,6 +102,8 @@ export interface MasterRevision {
   masterWidth: number;
   masterHeight: number;
   detectionZone: Box2D;
+  /** Controls whether inspection ROIs must remain inside the presence-detection zone. Legacy revisions default to WARNING. */
+  roiBoundaryPolicy?: RoiBoundaryPolicy;
   createdAt: string;
   updatedAt: string;
   createdBy: string;

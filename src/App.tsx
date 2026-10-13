@@ -147,14 +147,35 @@ export default function App() {
     const now = new Date().toISOString();
     const productId = `prd-${newIdx}-${Date.now()}`;
     const revisionId = `rev-01-${Date.now()}`;
-    const baseRevision = SEED_PRODUCT_A.revisions.find((revision) => revision.expectedObjectCount === 8) || SEED_PRODUCT_A.revisions[0];
+    const baseRevision = activeRevision || masters[0]?.revisions[0] || SEED_PRODUCT_A.revisions[0];
     const newProduct: MasterProduct = {
       id: productId,
-      productCode: `PRD-REFLECTOR-HL-GJRA-${String(newIdx).padStart(2, '0')}`,
-      productName: 'Reflector Assy HL GJRA',
-      description: 'New master cloned from the latest eight-screw production baseline.', activeRevisionId: revisionId, isActive: true,
-      createdAt: now, updatedAt: now, createdBy: 'System Engineer',
-      revisions: [{ ...baseRevision, id: revisionId, masterId: productId, revisionCode: 'REV-01', revisionNote: 'Initial production baseline', createdAt: now, updatedAt: now }],
+      productCode: `PRD-NEW-${String(newIdx).padStart(3, '0')}`,
+      productName: `New Product ${newIdx}`,
+      description: 'New independent inspection profile. Upload a master image, define ROIs, and add product-specific OK/NG references.',
+      activeRevisionId: revisionId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'System Engineer',
+      revisions: [{
+        ...baseRevision,
+        id: revisionId,
+        masterId: productId,
+        revisionCode: 'REV-01',
+        revisionNote: 'New product inspection profile',
+        masterImageUrl: '',
+        masterWidth: 0,
+        masterHeight: 0,
+        anchors: [],
+        inspectionROIs: [],
+        expectedObjectCount: 0,
+        referenceImages: [],
+        detectionZone: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+        roiBoundaryPolicy: 'WARNING',
+        createdAt: now,
+        updatedAt: now,
+      }],
     };
     await dbService.saveMaster(newProduct); await loadMasters(); handleSelectMaster(newProduct, revisionId);
   };

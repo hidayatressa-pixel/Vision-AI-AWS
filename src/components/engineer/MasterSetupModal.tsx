@@ -15,7 +15,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../../types/master';
+import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout, RoiBoundaryPolicy } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
@@ -36,6 +36,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'VISUAL' | 'TOLERANCES'>('VISUAL');
   const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision });
+  const [editedProductName, setEditedProductName] = useState(master.productName);
+  const [editedProductCode, setEditedProductCode] = useState(master.productCode);
   const [selectedItemType, setSelectedItemType] = useState<'ANCHOR' | 'ROI'>('ROI');
   const [selectedId, setSelectedId] = useState<string>('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -51,34 +53,42 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const referencePointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const referencePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
   const isDraggingRef = useRef<boolean>(false);
+  const isDraggingZoneRef = useRef<boolean>(false);
   const activePointerIdRef = useRef<number | null>(null);
   const pointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const pointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
+  const zonePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
+
+  useEffect(() => {
+    setEditedProductName(master.productName);
+    setEditedProductCode(master.productCode);
+  }, [master.id, master.productName, master.productCode]);
 
   useEffect(() => {
     const oldReferences = revision.referenceImages || [];
-    const legacyOk = oldReferences.find((item) => !item.kind && item.imageUrl);
-    const slots: ReferenceImage[] = [];
     const defaultLayout = (roi: InspectionROI): ReferenceRoiLayout => {
       const width = roi.width ?? roi.radius * 2;
       const height = roi.height ?? roi.radius * 2;
       return { x: Math.max(0, Math.min(1 - width, roi.x - width / 2)), y: Math.max(0, Math.min(1 - height, roi.y - height / 2)), width, height };
     };
-    (['OK', 'NG'] as const).forEach((kind) => {
-      for (let index = 0; index < 4; index++) {
-        const source = oldReferences.filter((item) => item.kind === kind)[index] ||
-          (kind === 'OK' && index === 0 ? legacyOk : undefined);
-        const id = source?.id || `${revision.id}-${kind.toLowerCase()}-${index + 1}`;
-        const roiLayouts: Record<string, ReferenceRoiLayout> = {};
-        revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source?.roiLayouts?.[roi.id] || defaultLayout(roi); });
-        slots.push({
-          id, label: `${kind} Reference ${index + 1}`, imageUrl: source?.imageUrl || '', kind, roiLayouts,
-          description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
-        });
-      }
+    // Preserve all saved examples. New products start with one OK and one NG slot.
+    const normalized: ReferenceImage[] = oldReferences.map((source, index) => {
+      const legacyKind = oldReferences.length > 1 && !oldReferences.some((item) => item.kind) ? (index < Math.ceil(oldReferences.length / 2) ? 'OK' : 'NG') : 'OK';
+      const kind = source.kind || legacyKind;
+      const roiLayouts: Record<string, ReferenceRoiLayout> = {};
+      revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
+      return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    setEditedRevision({ ...revision, referenceImages: slots });
-    setSelectedReferenceId(slots[0]?.id || '');
+    (['OK', 'NG'] as const).forEach((kind) => {
+      if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
+        id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
+        label: `${kind} Reference 1`, imageUrl: '', kind,
+        roiLayouts: Object.fromEntries(revision.inspectionROIs.map((roi) => [roi.id, defaultLayout(roi)])),
+        description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
+      });
+    });
+    setEditedRevision({ ...revision, roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
+    setSelectedReferenceId(normalized[0]?.id || '');
     setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
 
@@ -229,14 +239,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         return;
       }
     }
+
+    const zone = editedRevision.detectionZone;
+    const zoneLeft = zone.x * canvas.width;
+    const zoneTop = zone.y * canvas.height;
+    const zoneRight = (zone.x + zone.width) * canvas.width;
+    const zoneBottom = (zone.y + zone.height) * canvas.height;
+    if (clickX >= zoneLeft && clickX <= zoneRight && clickY >= zoneTop && clickY <= zoneBottom) {
+      isDraggingZoneRef.current = true;
+      zonePointerStartRef.current = { x: zone.x, y: zone.y, width: zone.width, height: zone.height, pointerX: clickX, pointerY: clickY };
+      pointerModeRef.current = clickX >= zoneRight - 18 && clickY >= zoneBottom - 18 ? 'RESIZE' : 'MOVE';
+    }
   };
 
   const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current || activePointerIdRef.current !== e.pointerId) return;
+    if (!isDraggingRef.current && !isDraggingZoneRef.current) return;
+    if (activePointerIdRef.current !== e.pointerId) return;
     const canvas = canvasRef.current;
     const start = pointerStartRef.current;
-    if (!canvas || !start || !selectedId) return;
+    const zoneStart = zonePointerStartRef.current;
+    if (!canvas) return;
     const { x: clickX, y: clickY } = getCanvasPoint(e);
+    if (isDraggingZoneRef.current && zoneStart) {
+      const dx = (clickX - zoneStart.pointerX) / canvas.width;
+      const dy = (clickY - zoneStart.pointerY) / canvas.height;
+      setEditedRevision((prev) => {
+        const old = prev.detectionZone;
+        if (pointerModeRef.current === 'RESIZE') {
+          const width = Math.max(0.05, Math.min(1 - old.x, zoneStart.width + dx));
+          const height = Math.max(0.05, Math.min(1 - old.y, zoneStart.height + dy));
+          return { ...prev, detectionZone: { ...old, width, height } };
+        }
+        return { ...prev, detectionZone: {
+          ...old,
+          x: Math.max(0, Math.min(1 - old.width, zoneStart.x + dx)),
+          y: Math.max(0, Math.min(1 - old.height, zoneStart.y + dy)),
+        } };
+      });
+      return;
+    }
+    if (!isDraggingRef.current || !start || !selectedId) return;
     const dx = (clickX - start.pointerX) / canvas.width;
     const dy = (clickY - start.pointerY) / canvas.height;
 
@@ -272,8 +314,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
   const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDraggingRef.current = false;
+    isDraggingZoneRef.current = false;
     activePointerIdRef.current = null;
     pointerStartRef.current = null;
+    zonePointerStartRef.current = null;
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
   };
 
@@ -451,6 +495,11 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const handleSave = async () => {
     setSaveError(null);
 
+    if (!editedProductName.trim() || !editedProductCode.trim()) {
+      setSaveError('Product name and product code are required.');
+      return;
+    }
+
     if (!isConfigurationValid) {
       const errors = validationChecks.filter((check) => !check.valid).map((check) => check.error);
       setSaveError(errors.join(' '));
@@ -459,6 +508,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
+      roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
       anchors: [],
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
@@ -471,6 +521,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     const normalizedRevisions = master.revisions.map((r) => r.id === normalizedRevision.id ? normalizedRevision : r);
     const updatedMaster: MasterProduct = {
       ...master,
+      productName: editedProductName.trim(),
+      productCode: editedProductCode.trim(),
       revisions: normalizedRevisions,
       updatedAt: new Date().toISOString(),
     };
@@ -501,7 +553,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Draw rectangular inspection areas, then upload four OK and four NG reference images and adjust each reference layout independently.
+                Configure this product's inspection areas and any number of OK/NG reference examples.
               </p>
             </div>
           </div>
@@ -541,6 +593,16 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Name</span>
+              <input value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. Lamp Assembly" />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Code</span>
+              <input value={editedProductCode} onChange={(event) => setEditedProductCode(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. LAMP-ASSY-001" />
+            </label>
+          </div>
           {/* Interactive Canvas Area */}
           <div className="lg:col-span-2 space-y-3">
             <div className="relative aspect-[4/3] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden flex items-center justify-center select-none">
@@ -574,10 +636,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-white">
                     <Images className="w-4 h-4 text-cyan-400" />
-                    Reference Images · 4 OK + 4 NG
+                    Reference Images · Flexible OK / NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use four OK and four NG examples.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; add more for robustness.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
@@ -587,6 +649,21 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 )}
               </div>
 
+              <div className="flex flex-wrap gap-2">
+                {(["OK", "NG"] as const).map((kind) => (
+                  <button key={kind} type="button" onClick={() => {
+                    const id = editedRevision.id + "-" + kind.toLowerCase() + "-" + Date.now();
+                    const layouts: Record<string, ReferenceRoiLayout> = {};
+                    editedRevision.inspectionROIs.forEach((roi) => { const width = roi.width ?? roi.radius * 2; const height = roi.height ?? roi.radius * 2; layouts[roi.id] = { x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height }; });
+                    const reference: ReferenceImage = { id, label: kind + " Reference " + (editedRevision.referenceImages.filter((item) => (item.kind || "OK") === kind).length + 1), imageUrl: "", kind, roiLayouts: layouts };
+                    setEditedRevision((prev) => ({ ...prev, referenceImages: [...prev.referenceImages, reference] }));
+                    setSelectedReferenceId(id);
+                  }} className="rounded-lg border border-slate-700 px-3 py-1.5 text-[10px] font-bold text-cyan-300">+ Add {kind} Reference</button>
+                ))}
+                {selectedReference && editedRevision.referenceImages.filter((item) => (item.kind || "OK") === (selectedReference.kind || "OK")).length > 1 && (
+                  <button type="button" onClick={() => { const remaining = editedRevision.referenceImages.filter((item) => item.id !== selectedReference.id); setEditedRevision((prev) => ({ ...prev, referenceImages: remaining })); setSelectedReferenceId(remaining[0]?.id || ""); }} className="rounded-lg border border-slate-700 px-3 py-1.5 text-[10px] font-bold text-slate-300">Remove Selected Reference</button>
+                )}
+              </div>
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {(editedRevision.referenceImages || []).map((reference) => {
                   const isSelected = reference.id === selectedReferenceId;
@@ -652,13 +729,29 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>Each reference image has its own editable ROI layout. The live crop is classified against four OK and four NG examples.</span>
+              <span>Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
 
           {/* Right Control Panels */}
           <div className="space-y-4">
+            {/* ROI containment is independent from the Detection Zone presence detector. */}
+            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-300">ROI Boundary Policy</div>
+              <p className="text-[10px] leading-4 text-slate-400">Choose whether inspection ROIs must stay inside the Detection Zone. This setting does not disable the Detection Zone's role in part-presence detection.</p>
+              <select
+                value={editedRevision.roiBoundaryPolicy ?? 'WARNING'}
+                onChange={(e) => setEditedRevision((prev) => ({ ...prev, roiBoundaryPolicy: e.target.value as RoiBoundaryPolicy }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500"
+              >
+                <option value="STRICT">Strict — block ROIs outside the zone</option>
+                <option value="WARNING">Warning — allow ROIs outside the zone</option>
+                <option value="DISABLED">Disabled — do not check containment</option>
+              </select>
+              <div className="text-[10px] text-slate-500">Recommended for flexible product setups: Warning.</div>
+            </div>
+
             {/* Save Validation Status */}
             <div className={`rounded-2xl border p-3 ${
               isConfigurationValid
@@ -737,7 +830,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
-                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast',
+                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
@@ -837,7 +930,18 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Width: {((roi.width ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
-                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length === 4 && editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length === 4 ? "8 refs" : "Need 4 OK + 4 NG"}</div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            <span>Comparison:</span>
+                            <select value={roi.comparisonMode ?? "BALANCED"} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const comparisonMode = event.target.value as NonNullable<InspectionROI["comparisonMode"]>;
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, comparisonMode } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="BALANCED">Balanced</option>
+                              <option value="STRUCTURE_FIRST">Structure first</option>
+                              <option value="INTENSITY_FIRST">Intensity first</option>
+                            </select>
+                          </div>
+                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length} OK / {editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length} NG</div>
                         </div>
                       </div>
                     );
@@ -906,7 +1010,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against four OK and four NG reference crops, using the layout saved separately for each reference image.
+                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against the configured OK/NG reference crops, using the layout saved separately for each reference image.
                 </div>
               </div>
             )}

@@ -25,6 +25,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
   const zone = revision.detectionZone;
+  // Backward compatibility: legacy profiles allow out-of-zone ROIs with a warning.
+  const roiBoundaryPolicy = revision.roiBoundaryPolicy || 'WARNING';
   const detectionZoneValid = Boolean(zone) &&
     Number.isFinite(zone.x) && Number.isFinite(zone.y) &&
     Number.isFinite(zone.width) && Number.isFinite(zone.height) &&
@@ -51,6 +53,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       roi.x + width / 2 <= zone.x + zone.width &&
       roi.y + height / 2 <= zone.y + zone.height;
   });
+  const roiContainmentRequired = roiBoundaryPolicy === 'STRICT';
+  const roiContainmentAccepted = !roiContainmentRequired || roisWithinDetectionZone;
   const referenceIdsUnique = new Set(references.map((reference) => reference.id)).size === references.length &&
     references.every((reference) => Boolean(reference.id?.trim()));
   const referenceLayoutsValid = references.every((reference) => rois.every((roi) => {
@@ -60,10 +64,9 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
-  const allReferencesUploaded = references.length === 8 &&
-    okReferences.length === 4 && ngReferences.length === 4 &&
+  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 &&
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
-  const layoutCoverage = references.length === 8 &&
+  const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
@@ -75,9 +78,21 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Rectangular ROIs',
-      valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roisWithinDetectionZone,
-      detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? ' · outside detection zone' : ''}`,
-      error: 'Configure at least one valid rectangular ROI inside the detection zone.',
+      valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roiContainmentAccepted,
+      detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? (roiBoundaryPolicy === 'STRICT' ? ' · outside detection zone (blocked)' : roiBoundaryPolicy === 'WARNING' ? ' · outside detection zone (allowed with warning)' : ' · containment check disabled') : ''}`,
+      error: roiBoundaryPolicy === 'STRICT'
+        ? 'Configure at least one valid rectangular ROI inside the detection zone, or change the boundary policy.'
+        : 'Configure at least one valid rectangular ROI with valid geometry and unique IDs.',
+    },
+    {
+      label: 'ROI boundary policy',
+      valid: true,
+      detail: roiBoundaryPolicy === 'STRICT'
+        ? 'Strict · all ROIs must be inside Detection Zone'
+        : roiBoundaryPolicy === 'WARNING'
+          ? 'Flexible · outside ROIs allowed with warning'
+          : 'Disabled · containment is not checked',
+      error: '',
     },
     {
       label: 'Master image',
@@ -94,14 +109,14 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     {
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
-      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 NG`,
-      error: 'Upload exactly 4 OK and 4 NG reference images.',
+      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
+      error: 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
       label: 'Per-reference ROI layout',
       valid: referenceLayoutsValid && layoutCoverage,
-      detail: layoutCoverage ? 'ROI layout saved for all 8 references' : 'Some reference layouts need initialization',
-      error: 'Configure a valid rectangle layout for every ROI on each of the 8 reference images.',
+      detail: layoutCoverage ? `ROI layouts saved for ${references.length} references` : 'Some reference layouts need initialization',
+      error: 'Configure a valid rectangle layout for every ROI on each reference image.',
     },
     {
       label: 'Detection zone',
