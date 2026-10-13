@@ -38,18 +38,18 @@ export class RuleEngine {
       revision.masterHeight <= 0 ||
       !revision.masterImageUrl ||
       expectedCount === 0 ||
-      okReferences.length !== 4 ||
-      ngReferences.length !== 4;
+      okReferences.length < 1 ||
+      ngReferences.length < 1;
     if (invalidConfiguration) {
       const details = [
         !revision.masterImageUrl ? 'master image missing' : '',
         expectedCount === 0 ? 'no rectangular ROI configured' : '',
-        `reference set incomplete (OK ${okReferences.length}/4, NG ${ngReferences.length}/4)`,
+        `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)`,
       ].filter(Boolean).join('; ');
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
         message: 'Multi-reference ROI configuration is incomplete: ' + details,
-        expected: 'At least one rectangle ROI and exactly four uploaded OK plus four uploaded NG references',
+        expected: 'At least one rectangle ROI and at least one uploaded OK plus one uploaded NG reference',
         actual: 'Configuration incomplete',
       });
       return {
@@ -117,7 +117,7 @@ export class RuleEngine {
     if (defects.length === 0 && passedCount === expectedCount) {
       return {
         judgement: 'OK',
-        primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using the 4 OK / 4 NG reference set`,
+        primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using ${okReferences.length} OK / ${ngReferences.length} NG references`,
         defects: [],
         expectedCount,
         detectedCount: passedCount,
