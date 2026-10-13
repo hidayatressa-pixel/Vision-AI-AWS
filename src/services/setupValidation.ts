@@ -25,6 +25,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
   const zone = revision.detectionZone;
+  // Backward compatibility: legacy profiles allow out-of-zone ROIs with a warning.
+  const roiBoundaryPolicy = revision.roiBoundaryPolicy || 'WARNING';
   const detectionZoneValid = Boolean(zone) &&
     Number.isFinite(zone.x) && Number.isFinite(zone.y) &&
     Number.isFinite(zone.width) && Number.isFinite(zone.height) &&
@@ -51,6 +53,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       roi.x + width / 2 <= zone.x + zone.width &&
       roi.y + height / 2 <= zone.y + zone.height;
   });
+  const roiContainmentRequired = roiBoundaryPolicy === 'STRICT';
+  const roiContainmentAccepted = !roiContainmentRequired || roisWithinDetectionZone;
   const referenceIdsUnique = new Set(references.map((reference) => reference.id)).size === references.length &&
     references.every((reference) => Boolean(reference.id?.trim()));
   const referenceLayoutsValid = references.every((reference) => rois.every((roi) => {
@@ -75,9 +79,21 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Rectangular ROIs',
-      valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roisWithinDetectionZone,
-      detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? ' · outside detection zone' : ''}`,
-      error: 'Configure at least one valid rectangular ROI inside the detection zone.',
+      valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roiContainmentAccepted,
+      detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? (roiBoundaryPolicy === 'STRICT' ? ' · outside detection zone (blocked)' : roiBoundaryPolicy === 'WARNING' ? ' · outside detection zone (allowed with warning)' : ' · containment check disabled') : ''}`,
+      error: roiBoundaryPolicy === 'STRICT'
+        ? 'Configure at least one valid rectangular ROI inside the detection zone, or change the boundary policy.'
+        : 'Configure at least one valid rectangular ROI with valid geometry and unique IDs.',
+    },
+    {
+      label: 'ROI boundary policy',
+      valid: true,
+      detail: roiBoundaryPolicy === 'STRICT'
+        ? 'Strict · all ROIs must be inside Detection Zone'
+        : roiBoundaryPolicy === 'WARNING'
+          ? 'Flexible · outside ROIs allowed with warning'
+          : 'Disabled · containment is not checked',
+      error: '',
     },
     {
       label: 'Master image',
