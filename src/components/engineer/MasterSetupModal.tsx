@@ -51,9 +51,11 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const referencePointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const referencePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
   const isDraggingRef = useRef<boolean>(false);
+  const isDraggingZoneRef = useRef<boolean>(false);
   const activePointerIdRef = useRef<number | null>(null);
   const pointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const pointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
+  const zonePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
 
   useEffect(() => {
     const oldReferences = revision.referenceImages || [];
@@ -229,14 +231,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         return;
       }
     }
+
+    const zone = editedRevision.detectionZone;
+    const zoneLeft = zone.x * canvas.width;
+    const zoneTop = zone.y * canvas.height;
+    const zoneRight = (zone.x + zone.width) * canvas.width;
+    const zoneBottom = (zone.y + zone.height) * canvas.height;
+    if (clickX >= zoneLeft && clickX <= zoneRight && clickY >= zoneTop && clickY <= zoneBottom) {
+      isDraggingZoneRef.current = true;
+      zonePointerStartRef.current = { x: zone.x, y: zone.y, width: zone.width, height: zone.height, pointerX: clickX, pointerY: clickY };
+      pointerModeRef.current = clickX >= zoneRight - 18 && clickY >= zoneBottom - 18 ? 'RESIZE' : 'MOVE';
+    }
   };
 
   const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current || activePointerIdRef.current !== e.pointerId) return;
+    if (!isDraggingRef.current && !isDraggingZoneRef.current) return;
+    if (activePointerIdRef.current !== e.pointerId) return;
     const canvas = canvasRef.current;
     const start = pointerStartRef.current;
-    if (!canvas || !start || !selectedId) return;
+    const zoneStart = zonePointerStartRef.current;
+    if (!canvas) return;
     const { x: clickX, y: clickY } = getCanvasPoint(e);
+    if (isDraggingZoneRef.current && zoneStart) {
+      const dx = (clickX - zoneStart.pointerX) / canvas.width;
+      const dy = (clickY - zoneStart.pointerY) / canvas.height;
+      setEditedRevision((prev) => {
+        const old = prev.detectionZone;
+        if (pointerModeRef.current === 'RESIZE') {
+          const width = Math.max(0.05, Math.min(1 - old.x, zoneStart.width + dx));
+          const height = Math.max(0.05, Math.min(1 - old.y, zoneStart.height + dy));
+          return { ...prev, detectionZone: { ...old, width, height } };
+        }
+        return { ...prev, detectionZone: {
+          ...old,
+          x: Math.max(0, Math.min(1 - old.width, zoneStart.x + dx)),
+          y: Math.max(0, Math.min(1 - old.height, zoneStart.y + dy)),
+        } };
+      });
+      return;
+    }
+    if (!isDraggingRef.current || !start || !selectedId) return;
     const dx = (clickX - start.pointerX) / canvas.width;
     const dy = (clickY - start.pointerY) / canvas.height;
 
@@ -272,8 +306,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
   const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDraggingRef.current = false;
+    isDraggingZoneRef.current = false;
     activePointerIdRef.current = null;
     pointerStartRef.current = null;
+    zonePointerStartRef.current = null;
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
   };
 
