@@ -233,8 +233,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
               <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400">Current master configuration</span>
-                  <span className={activeMasterReady ? 'text-emerald-300 text-[10px] font-black' : 'text-rose-300 text-[10px] font-black'}>
-                    {activeMasterReady ? 'VALID' : 'INVALID'}
+                  <span className={previewRevisionReady ? 'text-emerald-300 text-[10px] font-black' : 'text-rose-300 text-[10px] font-black'}>
+                    {previewRevisionReady ? 'VALID' : 'INVALID'}
                   </span>
                 </div>
                 <div className="mt-2 text-[10px] font-mono text-slate-500">
