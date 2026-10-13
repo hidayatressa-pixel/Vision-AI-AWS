@@ -85,7 +85,7 @@ export const StatusDisplay: React.FC<StatusDisplayProps> = ({
               </div>
               <div className="mt-1 flex items-center gap-2">
                 <span className="text-lg sm:text-xl font-bold text-white bg-red-900/60 px-2.5 py-0.5 rounded border border-red-600/60">
-                  {currentResult?.primaryReason || 'Screw Missing / Out of Tolerance'}
+                  {currentResult?.primaryReason || 'Defect detected in configured inspection area'}
                 </span>
               </div>
             </div>
