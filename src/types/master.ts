@@ -81,6 +81,8 @@ export interface ToleranceConfig {
   detectionZonePresenceThreshold: number;
 }
 
+export type RoiBoundaryPolicy = 'STRICT' | 'WARNING' | 'DISABLED';
+
 export interface MasterRevision {
   id: string;
   masterId: string;
@@ -95,6 +97,8 @@ export interface MasterRevision {
   masterWidth: number;
   masterHeight: number;
   detectionZone: Box2D;
+  /** Controls whether inspection ROIs must remain inside the presence-detection zone. Legacy revisions default to WARNING. */
+  roiBoundaryPolicy?: RoiBoundaryPolicy;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
