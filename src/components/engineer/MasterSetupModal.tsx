@@ -15,7 +15,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../../types/master';
+import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout, RoiBoundaryPolicy } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
@@ -459,6 +459,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
+      roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
       anchors: [],
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
@@ -659,6 +660,22 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
           {/* Right Control Panels */}
           <div className="space-y-4">
+            {/* ROI containment is independent from the Detection Zone presence detector. */}
+            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-300">ROI Boundary Policy</div>
+              <p className="text-[10px] leading-4 text-slate-400">Choose whether inspection ROIs must stay inside the Detection Zone. This setting does not disable the Detection Zone's role in part-presence detection.</p>
+              <select
+                value={editedRevision.roiBoundaryPolicy ?? 'WARNING'}
+                onChange={(e) => setEditedRevision((prev) => ({ ...prev, roiBoundaryPolicy: e.target.value as RoiBoundaryPolicy }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500"
+              >
+                <option value="STRICT">Strict — block ROIs outside the zone</option>
+                <option value="WARNING">Warning — allow ROIs outside the zone</option>
+                <option value="DISABLED">Disabled — do not check containment</option>
+              </select>
+              <div className="text-[10px] text-slate-500">Recommended for flexible product setups: Warning.</div>
+            </div>
+
             {/* Save Validation Status */}
             <div className={`rounded-2xl border p-3 ${
               isConfigurationValid
