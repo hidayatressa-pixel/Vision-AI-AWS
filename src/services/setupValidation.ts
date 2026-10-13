@@ -131,10 +131,12 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       error: 'Reference image IDs must be unique.',
     },
     {
-      label: 'Expected ROI count',
-      valid: revision.expectedObjectCount === rois.length,
-      detail: `${revision.expectedObjectCount} expected / ${rois.length} configured`,
-      error: 'Expected ROI count must match the number of rectangular ROIs.',
+      label: 'Inspection point count',
+      // Simple ROI mode derives its expected count from the configured ROI list.
+      // expectedObjectCount is retained for legacy data and normalized on save.
+      valid: rois.length >= 1,
+      detail: `${rois.length} configured · derived from inspection areas`,
+      error: 'Configure at least one inspection area.',
     },
     {
       label: 'ROI similarity threshold',
