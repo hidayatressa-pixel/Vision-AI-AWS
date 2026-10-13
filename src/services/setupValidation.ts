@@ -64,10 +64,9 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
-  const allReferencesUploaded = references.length === 8 &&
-    okReferences.length === 4 && ngReferences.length === 4 &&
+  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 &&
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
-  const layoutCoverage = references.length === 8 &&
+  const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
@@ -110,14 +109,14 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     {
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
-      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 NG`,
-      error: 'Upload exactly 4 OK and 4 NG reference images.',
+      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
+      error: 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
       label: 'Per-reference ROI layout',
       valid: referenceLayoutsValid && layoutCoverage,
-      detail: layoutCoverage ? 'ROI layout saved for all 8 references' : 'Some reference layouts need initialization',
-      error: 'Configure a valid rectangle layout for every ROI on each of the 8 reference images.',
+      detail: layoutCoverage ? `ROI layouts saved for ${references.length} references` : 'Some reference layouts need initialization',
+      error: 'Configure a valid rectangle layout for every ROI on each reference image.',
     },
     {
       label: 'Detection zone',
