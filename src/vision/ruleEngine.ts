@@ -43,8 +43,8 @@ export class RuleEngine {
     );
     const invalidConfiguration =
       !anchorsValid ||
-      revision.masterWidth <= 0 ||
-      revision.masterHeight <= 0 ||
+      !Number.isInteger(revision.masterWidth) || revision.masterWidth <= 0 ||
+      !Number.isInteger(revision.masterHeight) || revision.masterHeight <= 0 ||
       !revision.masterImageUrl ||
       expectedCount === 0 ||
       okReferences.length < 1 ||
@@ -52,7 +52,7 @@ export class RuleEngine {
     if (invalidConfiguration) {
       const details = [
         !revision.masterImageUrl ? 'master image missing' : '',
-        revision.masterWidth <= 0 || revision.masterHeight <= 0 ? 'invalid master image dimensions' : '',
+        !Number.isInteger(revision.masterWidth) || revision.masterWidth <= 0 || !Number.isInteger(revision.masterHeight) || revision.masterHeight <= 0 ? 'invalid master image dimensions' : '',
         !anchorsValid ? `anchor configuration invalid (${anchors.length} configured; need at least 3 valid unique anchors)` : '',
         expectedCount === 0 ? 'no rectangular ROI configured' : '',
         `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)`,
