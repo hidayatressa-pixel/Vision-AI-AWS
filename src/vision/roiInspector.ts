@@ -111,7 +111,7 @@ function currentRoiPatch(frame: GrayscaleImage, colorFrame: ImageData | null, ro
   return gray;
 }
 
-function comparePatches(reference: Float32Array, current: Float32Array): number {
+function comparePatches(reference: Float32Array, current: Float32Array, mode: InspectionROI['comparisonMode'] = 'BALANCED'): number {
   const referenceStructure = normalizePatch(reference);
   const currentStructure = normalizePatch(current);
   let structuralError = 0;
@@ -123,7 +123,11 @@ function comparePatches(reference: Float32Array, current: Float32Array): number 
   const count = Math.max(1, reference.length);
   const structureDifference = structuralError / count / 2;
   const brightnessDifference = intensityError / count;
-  const combinedDifference = structureDifference * 0.75 + brightnessDifference * 0.25;
+  const combinedDifference = mode === 'STRUCTURE_FIRST'
+    ? structureDifference * 0.92 + brightnessDifference * 0.08
+    : mode === 'INTENSITY_FIRST'
+      ? structureDifference * 0.25 + brightnessDifference * 0.75
+      : structureDifference * 0.75 + brightnessDifference * 0.25;
   return Math.max(0, Math.min(1, 1 - combinedDifference));
 }
 
@@ -170,7 +174,7 @@ export class ROIInspector {
         const patch = await loadReference(reference, roi);
         return patch ? {
           reference,
-          similarity: comparePatches(patch, current),
+          similarity: comparePatches(patch, current, roi.comparisonMode),
         } : null;
       }));
       const validComparisons = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
