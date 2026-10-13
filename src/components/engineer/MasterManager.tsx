@@ -335,7 +335,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                       {/* Specs Badge Strip */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-800/80 text-xs font-mono">
                         <div>
-                          <span className="text-slate-500 text-[11px]">Screws Required:</span>
+                          <span className="text-slate-500 text-[11px]">Inspection Points:</span>
                           <div className="font-bold text-cyan-300">{rev.inspectionROIs.length} points</div>
                         </div>
                         <div>
