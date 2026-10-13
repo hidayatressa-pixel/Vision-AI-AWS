@@ -36,6 +36,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'VISUAL' | 'TOLERANCES'>('VISUAL');
   const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision });
+  const [editedProductName, setEditedProductName] = useState(master.productName);
+  const [editedProductCode, setEditedProductCode] = useState(master.productCode);
   const [selectedItemType, setSelectedItemType] = useState<'ANCHOR' | 'ROI'>('ROI');
   const [selectedId, setSelectedId] = useState<string>('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -56,6 +58,11 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const pointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
   const pointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
   const zonePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
+
+  useEffect(() => {
+    setEditedProductName(master.productName);
+    setEditedProductCode(master.productCode);
+  }, [master.id, master.productName, master.productCode]);
 
   useEffect(() => {
     const oldReferences = revision.referenceImages || [];
@@ -488,6 +495,11 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const handleSave = async () => {
     setSaveError(null);
 
+    if (!editedProductName.trim() || !editedProductCode.trim()) {
+      setSaveError('Product name and product code are required.');
+      return;
+    }
+
     if (!isConfigurationValid) {
       const errors = validationChecks.filter((check) => !check.valid).map((check) => check.error);
       setSaveError(errors.join(' '));
@@ -509,6 +521,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     const normalizedRevisions = master.revisions.map((r) => r.id === normalizedRevision.id ? normalizedRevision : r);
     const updatedMaster: MasterProduct = {
       ...master,
+      productName: editedProductName.trim(),
+      productCode: editedProductCode.trim(),
       revisions: normalizedRevisions,
       updatedAt: new Date().toISOString(),
     };
@@ -579,6 +593,16 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Name</span>
+              <input value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. Lamp Assembly" />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Code</span>
+              <input value={editedProductCode} onChange={(event) => setEditedProductCode(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. LAMP-ASSY-001" />
+            </label>
+          </div>
           {/* Interactive Canvas Area */}
           <div className="lg:col-span-2 space-y-3">
             <div className="relative aspect-[4/3] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden flex items-center justify-center select-none">
