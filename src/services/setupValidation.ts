@@ -112,8 +112,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Master resolution',
-      valid: revision.masterWidth > 0 && revision.masterHeight > 0,
-      detail: revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
+      valid: Number.isInteger(revision.masterWidth) && revision.masterWidth > 0 && Number.isInteger(revision.masterHeight) && revision.masterHeight > 0,
+      detail: Number.isInteger(revision.masterWidth) && revision.masterWidth > 0 && Number.isInteger(revision.masterHeight) && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
       error: 'Master image dimensions are invalid.',
     },
     {
