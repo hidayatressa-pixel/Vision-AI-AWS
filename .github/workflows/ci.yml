@@ -1,10 +1,10 @@
-```yaml
-name: Vision-AI AWS CI
+name: Vision AI CI
 
 on:
   push:
     branches:
       - main
+      - "feature/**"
       - "hackathon/**"
       - "audit/**"
   pull_request:
@@ -17,21 +17,18 @@ permissions:
 jobs:
   frontend-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
+          node-version: '22'
+          cache: npm
       - name: Install frontend dependencies
-        run: npm install
-
+        run: npm ci
+      - name: TypeScript lint
+        run: npm run lint
       - name: Build frontend
         run: npm run build
 
@@ -40,24 +37,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install AWS analyzer dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r aws/vision-analyzer/requirements.txt pytest
-
       - name: Run API analyzer and S3 event tests
         run: pytest -q aws/vision-analyzer/test_app.py tests/test_s3_path.py
-
       - name: Build Lambda container
         run: docker build -t vision-ai-aws-opencv5 aws/vision-analyzer
-
       - name: Prove Lambda container uses OpenCV 5
         run: |
           docker run --rm --entrypoint python vision-ai-aws-opencv5 -c "import cv2; print(cv2.__version__); assert cv2.__version__.startswith('5.')"
-```
