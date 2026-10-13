@@ -57,28 +57,28 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
   useEffect(() => {
     const oldReferences = revision.referenceImages || [];
-    const legacyOk = oldReferences.find((item) => !item.kind && item.imageUrl);
-    const slots: ReferenceImage[] = [];
     const defaultLayout = (roi: InspectionROI): ReferenceRoiLayout => {
       const width = roi.width ?? roi.radius * 2;
       const height = roi.height ?? roi.radius * 2;
       return { x: Math.max(0, Math.min(1 - width, roi.x - width / 2)), y: Math.max(0, Math.min(1 - height, roi.y - height / 2)), width, height };
     };
-    (['OK', 'NG'] as const).forEach((kind) => {
-      for (let index = 0; index < 4; index++) {
-        const source = oldReferences.filter((item) => item.kind === kind)[index] ||
-          (kind === 'OK' && index === 0 ? legacyOk : undefined);
-        const id = source?.id || `${revision.id}-${kind.toLowerCase()}-${index + 1}`;
-        const roiLayouts: Record<string, ReferenceRoiLayout> = {};
-        revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source?.roiLayouts?.[roi.id] || defaultLayout(roi); });
-        slots.push({
-          id, label: `${kind} Reference ${index + 1}`, imageUrl: source?.imageUrl || '', kind, roiLayouts,
-          description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
-        });
-      }
+    // Preserve all saved examples. New products start with one OK and one NG slot.
+    const normalized: ReferenceImage[] = oldReferences.map((source, index) => {
+      const kind = source.kind || 'OK';
+      const roiLayouts: Record<string, ReferenceRoiLayout> = {};
+      revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
+      return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    setEditedRevision({ ...revision, referenceImages: slots });
-    setSelectedReferenceId(slots[0]?.id || '');
+    (['OK', 'NG'] as const).forEach((kind) => {
+      if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
+        id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
+        label: `${kind} Reference 1`, imageUrl: '', kind,
+        roiLayouts: Object.fromEntries(revision.inspectionROIs.map((roi) => [roi.id, defaultLayout(roi)])),
+        description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
+      });
+    });
+    setEditedRevision({ ...revision, roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
+    setSelectedReferenceId(normalized[0]?.id || '');
     setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
 
@@ -575,10 +575,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-white">
                     <Images className="w-4 h-4 text-cyan-400" />
-                    Reference Images · 4 OK + 4 NG
+                    Reference Images · Flexible OK / NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use four OK and four NG examples.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; add more for robustness.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
@@ -653,7 +653,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>Each reference image has its own editable ROI layout. The live crop is classified against four OK and four NG examples.</span>
+              <span>Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
@@ -754,7 +754,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
-                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast',
+                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
@@ -854,7 +854,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Width: {((roi.width ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
-                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length === 4 && editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length === 4 ? "8 refs" : "Need 4 OK + 4 NG"}</div>
+                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length} OK / {editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length} NG</div>
                         </div>
                       </div>
                     );
