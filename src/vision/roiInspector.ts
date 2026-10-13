@@ -197,7 +197,7 @@ export class ROIInspector {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: { x: transformedRoi.x, y: transformedRoi.y },
           actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
           isWithinTolerance: false, confidence: 0, isPresent: false,
           evidence: 'UNCERTAIN', status: 'WARNING',
