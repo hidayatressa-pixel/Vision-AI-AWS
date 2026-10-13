@@ -240,7 +240,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
         state={state}
         stabilizationProgress={stabilizationProgress}
         currentResult={currentResult}
-        expectedCount={activeRevision?.expectedObjectCount || 8}
+        expectedCount={activeRevision?.inspectionROIs.length ?? 0}
       />
 
       {/* 2. Main Live Inspection Stage */}
@@ -266,7 +266,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
             </span>
 
             <span className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900/90 border border-emerald-500/30 text-[11px] font-mono text-emerald-300 backdrop-blur-sm">
-              SIMPLE ROI · REFERENCE COMPARISON · FIXED CAMERA
+              {activeMaster?.productName || 'NO PRODUCT'} · {activeRevision?.revisionCode || 'NO REVISION'} · {activeRevision?.inspectionROIs.length ?? 0} POINTS
             </span>
           </div>
 
