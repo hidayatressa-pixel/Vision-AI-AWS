@@ -21,7 +21,6 @@ import {
 } from '../types/inspection';
 import { MasterProduct, MasterRevision } from '../types/master';
 import { PLCHandshakeState, PLCLiveSignals } from '../types/plc';
-import { alignmentEngine } from '../vision/alignmentEngine';
 import { getRegionStats, toGrayscale } from '../vision/imageUtils';
 import { PresenceDetector } from '../vision/presenceDetector';
 import { roiInspector } from '../vision/roiInspector';
@@ -102,9 +101,18 @@ export function useInspectionPipeline({
     activeRevisionRef.current = activeRevision;
   }, [activeMaster, activeRevision]);
 
+  // Refresh dashboard counters from the same source used by Inspection History.
+  // Clear History calls this after the records are removed, so the live counters
+  // cannot keep showing stale totals from the previous inspection run.
+  const refreshStats = useCallback(async () => {
+    const nextStats = await dbService.getStats();
+    setStats(nextStats);
+    return nextStats;
+  }, []);
+
   // Load initial stats and subscribe to PLC state
   useEffect(() => {
-    dbService.getStats().then(setStats).catch(console.error);
+    refreshStats().catch(console.error);
 
     const unsubscribe = plcService.subscribe((hs, sigs) => {
       setPlcHandshake(hs);
@@ -112,7 +120,7 @@ export function useInspectionPipeline({
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [refreshStats]);
 
   // Reset state when master/revision changes
   const resetPipeline = useCallback(() => {
@@ -234,39 +242,37 @@ export function useInspectionPipeline({
       const samples: VisionSample[] = [];
 
       const inspectVisionFrame = async (candidateFrame: ImageData): Promise<VisionSample> => {
-        setState('ALIGNING');
+        setState('INSPECTING');
         plcService.logTimelineEvent(
-          'ALIGNMENT_STARTED',
+          'ROI_COMPARISON_STARTED',
           'VISION',
-          'Locating reference fiducials A, B, C, D'
+          'Comparing rectangular camera ROIs with approved OK reference images'
         );
 
         const opencvFrame = await preprocessInspectionFrame(candidateFrame);
         const gray = opencvFrame.gray;
 
         const alignStart = performance.now();
-        const alignment = alignmentEngine.calculateAlignment(
-          gray,
-          revision.masterWidth,
-          revision.masterHeight,
-          revision.anchors,
-          revision.tolerance
-        );
+        // Simple ROI MVP uses fixed normalized camera coordinates; no
+        // screw/fiducial alignment is required for this inspection mode.
+        const alignment: AlignmentResult = {
+          success: true,
+          translationX: 0,
+          translationY: 0,
+          rotationDeg: 0,
+          scale: 1,
+          confidence: 1,
+          matchedAnchorCount: 0,
+          totalAnchorCount: 0,
+          anchorPositions: [],
+        };
         const alignmentMs = performance.now() - alignStart;
 
-        if (alignment.success) {
-          plcService.logTimelineEvent(
-            'ALIGNMENT_SUCCESS',
-            'VISION',
-            `Aligned with ${alignment.matchedAnchorCount} anchors (Rot: ${alignment.rotationDeg}°)`
-          );
-        } else {
-          plcService.logTimelineEvent(
-            'ALIGNMENT_FAILED',
-            'VISION',
-            alignment.errorMessage || 'Anchors not found'
-          );
-        }
+        plcService.logTimelineEvent(
+          'ROI_COORDINATES_READY',
+          'VISION',
+          'Fixed-camera normalized coordinates active; fiducial alignment bypassed'
+        );
 
         let roiResults: ROIInspectionResult[] = [];
         let extraObjects: ExtraDetectedObject[] = [];
@@ -331,6 +337,7 @@ export function useInspectionPipeline({
             'POSITION_OUT_OF_TOLERANCE',
             'EXTRA_OBJECT_DETECTED',
             'INCORRECT_COUNT',
+            'VISUAL_MISMATCH',
           ]);
 
           const ngFingerprint = (sample: VisionSample) =>
@@ -387,6 +394,7 @@ export function useInspectionPipeline({
         'POSITION_OUT_OF_TOLERANCE',
         'EXTRA_OBJECT_DETECTED',
         'INCORRECT_COUNT',
+        'VISUAL_MISMATCH',
       ]);
 
       const ngFingerprint = (sample: VisionSample) =>
@@ -520,12 +528,15 @@ export function useInspectionPipeline({
         cycleTimeMs: totalCycleMs,
       });
 
-      // A missing PLC ACK is a system fault. Never report the product as OK when
-      // the machine-side handshake could not be confirmed.
-      if (!plcHandshakeResult.ackReceived) {
-        resultJudgement = 'ERROR';
-        resultReason = 'PLC result ACK was not received; process remains blocked';
-        plcService.logTimelineEvent('HANDSHAKE_FAILED', 'INTERLOCK', resultReason);
+      // Keep product quality judgement separate from PLC communication status.
+      // A missing ACK must keep the machine interlocked, but must not erase a
+      // valid vision OK/NG result from production counters and inspection history.
+      if (plcService.getConfig().enabled && !plcHandshakeResult.ackReceived) {
+        const handshakeFault = 'PLC result ACK was not received; process remains blocked';
+        resultReason = resultReason
+          ? `${resultReason} — ${handshakeFault}`
+          : handshakeFault;
+        plcService.logTimelineEvent('HANDSHAKE_FAILED', 'INTERLOCK', handshakeFault);
       }
 
       const identity = getRuntimeIdentity();
@@ -823,6 +834,7 @@ export function useInspectionPipeline({
     plcHandshake,
     plcSignals,
     resetPipeline,
+    refreshStats,
     calibrateBackground,
     startSession,
   };

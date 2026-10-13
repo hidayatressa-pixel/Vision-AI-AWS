@@ -32,7 +32,8 @@ export type DefectCode =
   | 'UNSTABLE_MOTION'
   | 'PRODUCT_NOT_DETECTED'
   | 'INCORRECT_COUNT'
-  | 'MASTER_CONFIGURATION_INVALID';
+  | 'MASTER_CONFIGURATION_INVALID'
+  | 'VISUAL_MISMATCH';
 
 export interface DefectItem {
   code: DefectCode;

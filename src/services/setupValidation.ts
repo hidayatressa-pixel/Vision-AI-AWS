@@ -1,4 +1,4 @@
-import { MasterRevision } from '../types/master';
+import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
 
 export interface SetupValidationCheck {
   label: string;
@@ -7,74 +7,101 @@ export interface SetupValidationCheck {
   error: string;
 }
 
+function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): ReferenceRoiLayout {
+  const width = roi.width ?? roi.radius * 2;
+  const height = roi.height ?? roi.radius * 2;
+  return {
+    x: Math.max(0, Math.min(1 - width, roi.x - width / 2)),
+    y: Math.max(0, Math.min(1 - height, roi.y - height / 2)),
+    width,
+    height,
+  };
+}
+
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
-  const anchors = revision.anchors || [];
   const rois = revision.inspectionROIs || [];
-  const uniqueAnchorIds = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length && anchors.every((anchor) => Boolean(anchor.id?.trim()));
-  const isNormalizedPoint = (x: number, y: number) =>
-    Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1;
-  const anchorsHaveCoordinates = anchors.every((anchor) =>
-    isNormalizedPoint(anchor.x, anchor.y) &&
-    Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
-    Number.isFinite(anchor.patchRadius) && anchor.patchRadius > 0
-  );
-  const roisHaveValidGeometry = rois.every((roi) =>
-    isNormalizedPoint(roi.x, roi.y) &&
-    Number.isFinite(roi.radius) && roi.radius > 0 &&
-    Number.isFinite(roi.toleranceRadius) && roi.toleranceRadius >= 0 &&
-    Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0 && roi.minConfidence <= 1
-  );
-  const roiIdsAreUnique = new Set(rois.map((roi) => roi.id)).size === rois.length &&
-    rois.every((roi) => Boolean(roi.id?.trim()));
+  const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+  const ngReferences = references.filter((reference) => reference.kind === 'NG');
+  const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
   const zone = revision.detectionZone;
   const detectionZoneValid = Boolean(zone) &&
     Number.isFinite(zone.x) && Number.isFinite(zone.y) &&
     Number.isFinite(zone.width) && Number.isFinite(zone.height) &&
     zone.x >= 0 && zone.y >= 0 && zone.width > 0 && zone.height > 0 &&
     zone.x + zone.width <= 1 && zone.y + zone.height <= 1;
-  const roisWithinDetectionZone = detectionZoneValid && rois.every((roi) =>
-    roi.x >= zone.x && roi.x <= zone.x + zone.width &&
-    roi.y >= zone.y && roi.y <= zone.y + zone.height
-  );
-  const referencesMapOneToOne = references.length === 8 &&
-    new Set(references.map((reference) => reference.roiId)).size === 8 &&
-    references.every((reference) => Boolean(reference.roiId) && rois.some((roi) => roi.id === reference.roiId));
+
+  const roisHaveValidGeometry = rois.every((roi) => {
+    const width = roi.width ?? roi.radius * 2;
+    const height = roi.height ?? roi.radius * 2;
+    return isNormalized(roi.x) && isNormalized(roi.y) &&
+      Number.isFinite(width) && width > 0 && width <= 1 &&
+      Number.isFinite(height) && height > 0 && height <= 1 &&
+      roi.x - width / 2 >= 0 && roi.y - height / 2 >= 0 &&
+      roi.x + width / 2 <= 1 && roi.y + height / 2 <= 1 &&
+      Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98;
+  });
+  const roiIdsAreUnique = new Set(rois.map((roi) => roi.id)).size === rois.length &&
+    rois.every((roi) => Boolean(roi.id?.trim()));
+  const roisWithinDetectionZone = detectionZoneValid && rois.every((roi) => {
+    const width = roi.width ?? roi.radius * 2;
+    const height = roi.height ?? roi.radius * 2;
+    return roi.x - width / 2 >= zone.x &&
+      roi.y - height / 2 >= zone.y &&
+      roi.x + width / 2 <= zone.x + zone.width &&
+      roi.y + height / 2 <= zone.y + zone.height;
+  });
+  const referenceIdsUnique = new Set(references.map((reference) => reference.id)).size === references.length &&
+    references.every((reference) => Boolean(reference.id?.trim()));
+  const referenceLayoutsValid = references.every((reference) => rois.every((roi) => {
+    const layout = reference.roiLayouts?.[roi.id] || defaultLayout(roi);
+    return isNormalized(layout.x) && isNormalized(layout.y) &&
+      Number.isFinite(layout.width) && layout.width > 0 && layout.width <= 1 &&
+      Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
+      layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
+  }));
+  const allReferencesUploaded = references.length === 8 &&
+    okReferences.length === 4 && ngReferences.length === 4 &&
+    references.every((reference) => Boolean(reference.imageUrl?.trim()));
+  const layoutCoverage = references.length === 8 &&
+    references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
     {
-      label: 'Alignment anchors',
-      valid: anchors.length === 4 && uniqueAnchorIds && anchorsHaveCoordinates,
-      detail: `${anchors.length}/4 configured${uniqueAnchorIds ? '' : ' · duplicate IDs'}${anchorsHaveCoordinates ? '' : ' · invalid geometry'}`,
-      error: 'Exactly 4 uniquely identified alignment anchors with valid coordinates and radii are required.',
+      label: 'Alignment',
+      valid: true,
+      detail: 'Not required in Simple ROI mode',
+      error: '',
     },
     {
-      label: 'Inspection ROIs',
-      valid: rois.length === 8 && roisHaveValidGeometry && roiIdsAreUnique && roisWithinDetectionZone,
-      detail: `${rois.length}/8 configured${!roisHaveValidGeometry ? ' · invalid geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? ' · outside detection zone' : ''}`,
-      error: 'Exactly 8 uniquely identified inspection ROIs must have valid normalized coordinates, radii, confidence, and lie within the detection zone.',
+      label: 'Rectangular ROIs',
+      valid: rois.length >= 1 && roisHaveValidGeometry && roiIdsAreUnique && roisWithinDetectionZone,
+      detail: `${rois.length} ROI(s) configured${!roisHaveValidGeometry ? ' · invalid rectangle geometry' : ''}${!roiIdsAreUnique ? ' · duplicate IDs' : ''}${!roisWithinDetectionZone ? ' · outside detection zone' : ''}`,
+      error: 'Configure at least one valid rectangular ROI inside the detection zone.',
     },
     {
       label: 'Master image',
       valid: Boolean(revision.masterImageUrl?.trim()),
       detail: revision.masterImageUrl?.trim() ? 'Ready' : 'Missing',
-      error: 'A master image is required.',
+      error: 'Upload a master image to initialize the inspection layout.',
     },
     {
       label: 'Master resolution',
       valid: revision.masterWidth > 0 && revision.masterHeight > 0,
-      detail: revision.masterWidth > 0 && revision.masterHeight > 0
-        ? `${revision.masterWidth}×${revision.masterHeight}`
-        : 'Invalid',
-      error: 'Master dimensions are invalid.',
+      detail: revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
+      error: 'Master image dimensions are invalid.',
     },
     {
-      label: 'Reference images',
-      valid: references.length === 8 && references.every((reference) => Boolean(reference.imageUrl?.trim())),
-      detail: `${references.filter((reference) => Boolean(reference.imageUrl?.trim())).length}/8 images ready`,
-      error: references.length !== 8
-        ? `Exactly 8 master reference images are required (${references.length}/8 configured).`
-        : 'All 8 master reference images must contain a valid image.',
+      label: 'OK/NG reference images',
+      valid: allReferencesUploaded,
+      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length}/4 NG`,
+      error: 'Upload exactly 4 OK and 4 NG reference images.',
+    },
+    {
+      label: 'Per-reference ROI layout',
+      valid: referenceLayoutsValid && layoutCoverage,
+      detail: layoutCoverage ? 'ROI layout saved for all 8 references' : 'Some reference layouts need initialization',
+      error: 'Configure a valid rectangle layout for every ROI on each of the 8 reference images.',
     },
     {
       label: 'Detection zone',
@@ -83,40 +110,22 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       error: 'The detection zone must be a valid rectangle within the master image.',
     },
     {
-      label: 'Reference-to-ROI mapping',
-      valid: referencesMapOneToOne,
-      detail: referencesMapOneToOne ? '8/8 mapped' : 'Mapping incomplete or duplicated',
-      error: 'Each of the 8 reference images must map to a different inspection ROI.',
-    },
-    {
       label: 'Reference IDs',
-      valid: new Set(references.map((reference) => reference.id)).size === references.length && references.every((reference) => Boolean(reference.id?.trim())),
-      detail: new Set(references.map((reference) => reference.id)).size === references.length ? 'Unique' : 'Duplicate IDs',
-      error: 'Master reference IDs must be unique.',
+      valid: referenceIdsUnique,
+      detail: referenceIdsUnique ? 'Unique' : 'Duplicate or empty IDs',
+      error: 'Reference image IDs must be unique.',
     },
     {
-      label: 'Expected objects',
-      valid: revision.expectedObjectCount === 8 && revision.expectedObjectCount === revision.inspectionROIs.length,
-      detail: `${revision.expectedObjectCount}/8 expected`,
-      error: 'Expected object count must match the number of inspection ROIs.',
+      label: 'Expected ROI count',
+      valid: revision.expectedObjectCount === rois.length,
+      detail: `${revision.expectedObjectCount} expected / ${rois.length} configured`,
+      error: 'Expected ROI count must match the number of rectangular ROIs.',
     },
     {
-      label: 'Position tolerance',
-      valid: Number.isFinite(revision.tolerance.maxPositionOffsetPx) && revision.tolerance.maxPositionOffsetPx > 0 && Number.isFinite(revision.tolerance.maxPositionOffsetMm) && revision.tolerance.maxPositionOffsetMm > 0,
-      detail: `±${revision.tolerance.maxPositionOffsetMm} mm`,
-      error: 'Position tolerances must be greater than zero.',
-    },
-    {
-      label: 'Alignment confidence',
-      valid: Number.isFinite(revision.tolerance.minAlignmentConfidence) && revision.tolerance.minAlignmentConfidence >= 0 && revision.tolerance.minAlignmentConfidence <= 1,
-      detail: `${(revision.tolerance.minAlignmentConfidence * 100).toFixed(0)}%`,
-      error: 'Alignment confidence must be between 0 and 1.',
-    },
-    {
-      label: 'Screw confidence',
-      valid: Number.isFinite(revision.tolerance.minScrewConfidence) && revision.tolerance.minScrewConfidence >= 0 && revision.tolerance.minScrewConfidence <= 1,
-      detail: `${(revision.tolerance.minScrewConfidence * 100).toFixed(0)}%`,
-      error: 'Minimum screw confidence must be between 0 and 1.',
+      label: 'ROI similarity threshold',
+      valid: rois.every((roi) => Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98),
+      detail: 'Configured per ROI',
+      error: 'ROI similarity threshold must be between 50% and 98%.',
     },
   ];
 }

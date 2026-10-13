@@ -19,7 +19,8 @@ import { PLCAdapter } from './plcAdapter';
 import { SimulatedPLCAdapter } from './simulatedPlcAdapter';
 
 const DEFAULT_CONFIG: PLCConfiguration = {
-  enabled: true,
+  // MVP mode: inspection runs locally without PLC communication.
+  enabled: false,
   protocol: 'SIMULATION',
   ipAddress: '192.168.1.100',
   port: 502,
@@ -114,7 +115,7 @@ class PLCService {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<PLCConfiguration>;
-        this.config = { ...DEFAULT_CONFIG, ...parsed, tags: { ...DEFAULT_CONFIG.tags, ...(parsed.tags || {}) } };
+        this.config = { ...DEFAULT_CONFIG, ...parsed, enabled: false, triggerMode: 'AUTO_CAMERA', tags: { ...DEFAULT_CONFIG.tags, ...(parsed.tags || {}) } };
       }
     } catch {
       // Use defaults
@@ -122,7 +123,7 @@ class PLCService {
   }
 
   public saveConfig(newConfig: PLCConfiguration) {
-    this.config = { ...DEFAULT_CONFIG, ...newConfig, tags: { ...DEFAULT_CONFIG.tags, ...newConfig.tags } };
+    this.config = { ...DEFAULT_CONFIG, ...newConfig, enabled: false, triggerMode: 'AUTO_CAMERA', tags: { ...DEFAULT_CONFIG.tags, ...newConfig.tags } };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
     } catch {
@@ -318,7 +319,9 @@ class PLCService {
     this.currentSignals.inspectionError = false;
     this.currentSignals.processPermit = false;
 
-    this.adapter.clearResultSignals();
+    if (this.config.enabled) {
+      void this.adapter.clearResultSignals();
+    }
 
     this.logTimelineEvent(
       'CYCLE_STARTED',
@@ -334,6 +337,26 @@ class PLCService {
     ackReceived: boolean;
     commLatencyMs: number;
   }> {
+    // PLC-disabled MVP: retain the vision judgement without transmitting
+    // outputs or waiting for a hardware/simulator ACK. This is not a safety
+    // interlock and must not be used to control production machinery.
+    if (!this.config.enabled) {
+      this.handshakeState.lastInspectionId = payload.inspectionId;
+      this.handshakeState.lastResultSent = payload.judgement;
+      this.handshakeState.ackPending = false;
+      this.handshakeState.ackReceived = false;
+      this.handshakeState.interlockState = 'WAITING_INSPECTION';
+      this.currentSignals.processPermit = false;
+      this.logTimelineEvent(
+        'PLC_BYPASSED_MVP',
+        'VISION',
+        `PLC disabled for MVP; vision judgement retained: ${payload.judgement}`,
+        { judgement: payload.judgement, detected: payload.detectedCount, expected: payload.expectedCount }
+      );
+      this.notify();
+      return { interlockGranted: false, ackReceived: false, commLatencyMs: 0 };
+    }
+
     const sendTime = performance.now();
     this.handshakeState.lastInspectionId = payload.inspectionId;
     this.handshakeState.lastResultSent = payload.judgement;
@@ -432,6 +455,14 @@ class PLCService {
   // keep the station blocked and surface a communication fault.
   public async clearInterlock(): Promise<boolean> {
     this.currentSignals.processPermit = false;
+
+    if (!this.config.enabled) {
+      this.handshakeState.interlockState = 'WAITING_INSPECTION';
+      this.handshakeState.ackPending = false;
+      this.logTimelineEvent('PART_REMOVED', 'VISION', 'PLC disabled; local inspection is ready for the next part');
+      this.notify();
+      return true;
+    }
 
     const resetOk = await this.adapter.resetInterlock();
 

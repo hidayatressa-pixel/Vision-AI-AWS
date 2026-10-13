@@ -1,9 +1,7 @@
 /**
- * Deterministic Inspection Rule Engine
- * Evaluates counts, presence, tolerances, extra objects, and alignment.
- * Distinguishes Product NG from System/Inspection Error.
+ * Simple visual comparison rules for rectangular ROI inspection.
+ * Product judgement is based on the similarity of each ROI to its approved OK reference.
  */
-
 import {
   AlignmentResult,
   DefectItem,
@@ -22,187 +20,116 @@ export interface RuleEvaluationResult {
 }
 
 export class RuleEngine {
-  /**
-   * Deterministic evaluation of all inspection criteria
-   */
   public evaluate(
     revision: MasterRevision,
     alignment: AlignmentResult,
     roiResults: ROIInspectionResult[],
     extraObjects: ExtraDetectedObject[]
   ): RuleEvaluationResult {
+    void extraObjects;
+    const expectedCount = revision.inspectionROIs.length;
     const defects: DefectItem[] = [];
 
-    // Configuration is part of inspection safety. A required screw without a
-    // usable golden reference would silently fall back to geometry-only
-    // detection, which is not acceptable for the production trial.
-    const requiredScrewROIs = revision.inspectionROIs.filter(
-      (roi) => roi.objectType === 'screw' && roi.isRequired
-    );
-    const referenceByRoi = new Map(
-      revision.referenceImages
-        .filter((reference) => Boolean(reference.imageUrl))
-        .map((reference) => [reference.roiId || reference.id, reference])
-    );
-    const missingReferences = requiredScrewROIs.filter(
-      (roi) => !referenceByRoi.has(roi.id)
-    );
-
-    if (
+    const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
+    const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+    const ngReferences = references.filter((reference) => reference.kind === 'NG');
+    const invalidConfiguration =
       revision.masterWidth <= 0 ||
       revision.masterHeight <= 0 ||
       !revision.masterImageUrl ||
-      missingReferences.length > 0
-    ) {
-      const missing = missingReferences.map((roi) => roi.name).join(', ');
-      const reason = [
-        revision.masterWidth <= 0 || revision.masterHeight <= 0 ? 'master dimensions are not calibrated' : '',
-        !revision.masterImageUrl ? 'master image is missing' : '',
-        missing ? `golden reference missing for: ${missing}` : '',
+      expectedCount === 0 ||
+      okReferences.length !== 4 ||
+      ngReferences.length !== 4;
+    if (invalidConfiguration) {
+      const details = [
+        !revision.masterImageUrl ? 'master image missing' : '',
+        expectedCount === 0 ? 'no rectangular ROI configured' : '',
+        `reference set incomplete (OK ${okReferences.length}/4, NG ${ngReferences.length}/4)`,
       ].filter(Boolean).join('; ');
-
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
-        message: `Master configuration is not trial-safe: ${reason}`,
-        expected: 'Calibrated master image and golden reference for every required screw ROI',
+        message: 'Multi-reference ROI configuration is incomplete: ' + details,
+        expected: 'At least one rectangle ROI and exactly four uploaded OK plus four uploaded NG references',
         actual: 'Configuration incomplete',
       });
-
       return {
         judgement: 'INVALID',
         primaryReason: defects[0].message,
         defects,
-        expectedCount: revision.expectedObjectCount,
+        expectedCount,
         detectedCount: 0,
       };
     }
 
-    // 1. Alignment is a prerequisite for a valid product judgement.
-    // Failure to locate the reference does NOT prove the product is defective.
-    // It is an INVALID inspection result; infrastructure/runtime failures are
-    // handled separately by the pipeline/PLC watchdog.
     if (!alignment.success) {
       defects.push({
         code: 'ALIGNMENT_FAILED',
-        message: alignment.errorMessage || 'Alignment Failed — Reference fiducials not found or confidence too low',
-        expected: `${revision.anchors.length} anchors`,
-        actual: `${alignment.matchedAnchorCount} anchors`,
+        message: alignment.errorMessage || 'Camera frame could not be used for ROI inspection',
+        expected: 'Valid camera frame',
+        actual: 'Invalid frame',
       });
-
-      return {
-        judgement: 'INVALID',
-        primaryReason: alignment.errorMessage || 'Inspection Invalid: reference fiducials could not be confirmed',
-        defects,
-        expectedCount: revision.expectedObjectCount,
-        detectedCount: 0,
-      };
+      return { judgement: 'INVALID', primaryReason: defects[0].message, defects, expectedCount, detectedCount: 0 };
     }
 
-    // 2. Per-ROI Evaluation (Missing screws, out-of-tolerance screws, low confidence)
-    let presentScrewCount = 0;
+    const resultById = new Map(roiResults.map((result) => [result.roiId, result]));
+    let passedCount = 0;
+    let uncertainCount = 0;
 
-    for (const roi of roiResults) {
-      if (!roi.isPresent) {
-        if (roi.status === 'FAIL' && roi.evidence !== 'UNCERTAIN') {
-          defects.push({
-            code: 'MISSING_PART',
-            roiId: roi.roiId,
-            roiName: roi.roiName,
-            message: `${roi.roiName} Missing`,
-            expected: 'Present (Conf > 65%)',
-            actual: `Absent (Conf ${(roi.confidence * 100).toFixed(0)}%)`,
-          });
-        }
+    for (const roi of revision.inspectionROIs) {
+      const result = resultById.get(roi.id);
+      if (!result || result.evidence === 'UNCERTAIN') {
+        uncertainCount++;
+        defects.push({
+          code: 'LOW_CONFIDENCE',
+          roiId: roi.id,
+          roiName: roi.name,
+          message: result?.failureReason || `${roi.name}: comparison evidence unavailable`,
+          expected: 'Readable ROI and complete OK/NG reference set',
+          actual: 'Comparison could not be completed',
+        });
+        continue;
+      }
+
+      if (!result.isWithinTolerance || result.status === 'FAIL') {
+        defects.push({
+          code: 'VISUAL_MISMATCH',
+          roiId: roi.id,
+          roiName: roi.name,
+          message: result.failureReason || `${roi.name}: visual mismatch`,
+          expected: `Similarity ≥ ${Math.round((roi.minConfidence || 0.75) * 100)}%`,
+          actual: `${Math.round(result.confidence * 100)}% similarity`,
+        });
       } else {
-        // Present, now check tolerance
-        if (!roi.isWithinTolerance) {
-          defects.push({
-            code: 'POSITION_OUT_OF_TOLERANCE',
-            roiId: roi.roiId,
-            roiName: roi.roiName,
-            message: `${roi.roiName} Position Out of Tolerance (+${roi.positionOffsetMm}mm)`,
-            expected: `< ${revision.tolerance.maxPositionOffsetMm}mm`,
-            actual: `${roi.positionOffsetMm}mm (${roi.positionOffsetPx}px)`,
-          });
-        } else {
-          presentScrewCount++;
-        }
+        passedCount++;
       }
     }
 
-    // 3. Extra Detected Objects Check
-    if (extraObjects.length > 0) {
-      for (const extra of extraObjects) {
-        defects.push({
-          code: 'EXTRA_OBJECT_DETECTED',
-          message: `Extra Object/Screw Detected (Confidence ${(extra.confidence * 100).toFixed(0)}%)`,
-          expected: 'No extra objects',
-          actual: `Detected at (${(extra.position.x * 100).toFixed(1)}%, ${(extra.position.y * 100).toFixed(1)}%)`,
-        });
-      }
-    }
-
-    // 4. Object Count Rule
-    const expectedCount = revision.expectedObjectCount;
-    const totalDetected = presentScrewCount + extraObjects.length;
-
-    if (totalDetected !== expectedCount) {
-      if (totalDetected < expectedCount && !defects.some((d) => d.code === 'MISSING_PART')) {
-        defects.push({
-          code: 'INCORRECT_COUNT',
-          message: `Screw Count Mismatch: Expected ${expectedCount}, Detected ${totalDetected}`,
-          expected: expectedCount,
-          actual: totalDetected,
-        });
-      } else if (totalDetected > expectedCount && !defects.some((d) => d.code === 'EXTRA_OBJECT_DETECTED')) {
-        defects.push({
-          code: 'EXTRA_OBJECT_DETECTED',
-          message: `Extra Screw Detected: Expected ${expectedCount}, Found ${totalDetected}`,
-          expected: expectedCount,
-          actual: totalDetected,
-        });
-      }
-    }
-
-    // 5. Final Judgement
-    // Ambiguous required-ROI evidence is not proof of a product defect.
-    const hasUncertainRequiredRoi = roiResults.some(
-      (roi) =>
-        roi.evidence === 'UNCERTAIN' &&
-        !roi.isPresent &&
-        revision.inspectionROIs.find((configured) => configured.id === roi.roiId)?.isRequired
-    );
-
-    if (hasUncertainRequiredRoi) {
+    if (uncertainCount > 0) {
       return {
         judgement: 'INVALID',
-        primaryReason: 'Inspection Invalid: vision evidence was insufficient to confirm one or more required ROIs',
+        primaryReason: 'Inspection Invalid: one or more ROI comparisons lacked reliable image evidence',
         defects,
         expectedCount,
-        detectedCount: presentScrewCount,
+        detectedCount: passedCount,
       };
     }
 
-    if (defects.length === 0) {
+    if (defects.length === 0 && passedCount === expectedCount) {
       return {
         judgement: 'OK',
-        primaryReason: `All ${expectedCount}/${expectedCount} Screws Inspected OK (Tolerance Passed)`,
+        primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using the 4 OK / 4 NG reference set`,
         defects: [],
         expectedCount,
-        detectedCount: presentScrewCount,
+        detectedCount: passedCount,
       };
     }
-
-    // There are defects -> NG
-    // Primary reason is the first/most critical defect
-    const primaryDefect = defects[0];
 
     return {
       judgement: 'NG',
-      primaryReason: primaryDefect.message,
+      primaryReason: defects[0]?.message || 'Visual mismatch detected',
       defects,
       expectedCount,
-      detectedCount: presentScrewCount,
+      detectedCount: passedCount,
     };
   }
 }

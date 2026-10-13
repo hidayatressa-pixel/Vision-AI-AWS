@@ -1,6 +1,6 @@
 /**
  * Master Setup & Calibration Modal
- * Interactive visual canvas editor for Anchors A, B, C, D, ROIs, and Tolerances.
+ * Simple rectangular ROI editor with per-reference OK/NG comparison.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -12,8 +12,10 @@ import {
   Upload,
   CheckCircle2,
   AlertCircle,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import { InspectionROI, MasterProduct, MasterRevision } from '../../types/master';
+import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
@@ -41,15 +43,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const loadedReferenceImageRef = useRef<HTMLImageElement | null>(null);
+  const loadedReferenceIdRef = useRef<string | null>(null);
+  const referenceDraggingRef = useRef(false);
+  const referencePointerIdRef = useRef<number | null>(null);
+  const referencePointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
+  const referencePointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
   const isDraggingRef = useRef<boolean>(false);
   const activePointerIdRef = useRef<number | null>(null);
+  const pointerModeRef = useRef<'MOVE' | 'RESIZE'>('MOVE');
+  const pointerStartRef = useRef<{ x: number; y: number; width: number; height: number; pointerX: number; pointerY: number } | null>(null);
 
   useEffect(() => {
-    setEditedRevision({ ...revision });
-    setSelectedReferenceId(revision.referenceImages?.[0]?.id || '');
+    const oldReferences = revision.referenceImages || [];
+    const legacyOk = oldReferences.find((item) => !item.kind && item.imageUrl);
+    const slots: ReferenceImage[] = [];
+    const defaultLayout = (roi: InspectionROI): ReferenceRoiLayout => {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      return { x: Math.max(0, Math.min(1 - width, roi.x - width / 2)), y: Math.max(0, Math.min(1 - height, roi.y - height / 2)), width, height };
+    };
+    (['OK', 'NG'] as const).forEach((kind) => {
+      for (let index = 0; index < 4; index++) {
+        const source = oldReferences.filter((item) => item.kind === kind)[index] ||
+          (kind === 'OK' && index === 0 ? legacyOk : undefined);
+        const id = source?.id || `${revision.id}-${kind.toLowerCase()}-${index + 1}`;
+        const roiLayouts: Record<string, ReferenceRoiLayout> = {};
+        revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source?.roiLayouts?.[roi.id] || defaultLayout(roi); });
+        slots.push({
+          id, label: `${kind} Reference ${index + 1}`, imageUrl: source?.imageUrl || '', kind, roiLayouts,
+          description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
+        });
+      }
+    });
+    setEditedRevision({ ...revision, referenceImages: slots });
+    setSelectedReferenceId(slots[0]?.id || '');
+    setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
 
-  // Redraw master image with interactive anchors and ROIs
+  // Redraw master image with interactive rectangular ROIs
   useEffect(() => {
     if (!isOpen) return;
     const canvas = canvasRef.current;
@@ -74,57 +107,35 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       ctx.setLineDash([6, 4]);
       ctx.strokeRect(dz.x * w, dz.y * h, dz.width * w, dz.height * h);
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.05)';
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.04)';
       ctx.fillRect(dz.x * w, dz.y * h, dz.width * w, dz.height * h);
       ctx.font = '10px monospace';
       ctx.fillStyle = '#06b6d4';
       ctx.fillText('DETECTION ZONE', dz.x * w + 8, dz.y * h + 16);
 
-      for (const anchor of editedRevision.anchors) {
-        const x = anchor.x * w;
-        const y = anchor.y * h;
-        const selected = selectedItemType === 'ANCHOR' && selectedId === anchor.id;
-        ctx.strokeStyle = selected ? '#f59e0b' : '#38bdf8';
-        ctx.lineWidth = selected ? 3 : 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 12, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(x - 18, y);
-        ctx.lineTo(x + 18, y);
-        ctx.moveTo(x, y - 18);
-        ctx.lineTo(x, y + 18);
-        ctx.stroke();
-        ctx.font = 'bold 11px monospace';
-        ctx.fillStyle = selected ? '#f59e0b' : '#38bdf8';
-        ctx.textAlign = 'start';
-        ctx.fillText(anchor.name, x + 14, y - 6);
-      }
-
       for (const roi of editedRevision.inspectionROIs) {
         const x = roi.x * w;
         const y = roi.y * h;
+        const rw = (roi.width ?? roi.radius * 2) * w;
+        const rh = (roi.height ?? roi.radius * 2) * h;
+        const left = x - rw / 2;
+        const top = y - rh / 2;
         const selected = selectedItemType === 'ROI' && selectedId === roi.id;
-        // Blue = nominal/OK position. Yellow = absolute tolerance boundary.
-        ctx.strokeStyle = selected ? '#60a5fa' : '#3b82f6';
+        ctx.strokeStyle = selected ? '#f59e0b' : '#22c55e';
         ctx.lineWidth = selected ? 3 : 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 22, 0, Math.PI * 2);
-        ctx.stroke();
-
-        const toleranceRadius = editedRevision.tolerance.maxPositionOffsetPx || 25;
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.arc(x, y, toleranceRadius, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.setLineDash(selected ? [] : [6, 4]);
+        ctx.strokeRect(left, top, rw, rh);
         ctx.setLineDash([]);
-
-        ctx.font = 'bold 11px monospace';
-        ctx.fillStyle = selected ? '#93c5fd' : '#60a5fa';
-        ctx.textAlign = 'center';
-        ctx.fillText(roi.name, x, y + 36);
+        ctx.fillStyle = selected ? 'rgba(245, 158, 11, 0.08)' : 'rgba(34, 197, 94, 0.05)';
+        ctx.fillRect(left, top, rw, rh);
+        ctx.font = 'bold 12px monospace';
+        ctx.fillStyle = selected ? '#fbbf24' : '#4ade80';
+        ctx.textAlign = 'start';
+        ctx.fillText(roi.name, left + 4, Math.max(12, top - 5));
+        if (selected) {
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(left + rw - 7, top + rh - 7, 14, 14);
+        }
       }
       ctx.textAlign = 'start';
     };
@@ -189,34 +200,31 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     };
   };
 
-  // Handle canvas click to drag/select anchor or ROI
+  // Select and move a rectangular ROI, or drag its bottom-right handle to resize.
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const { x: clickX, y: clickY } = getCanvasPoint(e);
     canvas.setPointerCapture(e.pointerId);
     activePointerIdRef.current = e.pointerId;
 
-    // Check Anchors first
-    for (const a of editedRevision.anchors) {
-      const ax = a.x * canvas.width;
-      const ay = a.y * canvas.height;
-      if (Math.hypot(clickX - ax, clickY - ay) < 25) {
-        setSelectedItemType('ANCHOR');
-        setSelectedId(a.id);
-        isDraggingRef.current = true;
-        return;
-      }
-    }
-
-    // Check ROIs
-    for (const r of editedRevision.inspectionROIs) {
-      const rx = r.x * canvas.width;
-      const ry = r.y * canvas.height;
-      if (Math.hypot(clickX - rx, clickY - ry) < 28) {
+    for (const roi of [...editedRevision.inspectionROIs].reverse()) {
+      const rw = (roi.width ?? roi.radius * 2) * canvas.width;
+      const rh = (roi.height ?? roi.radius * 2) * canvas.height;
+      const left = roi.x * canvas.width - rw / 2;
+      const top = roi.y * canvas.height - rh / 2;
+      const right = left + rw;
+      const bottom = top + rh;
+      if (clickX >= left - 6 && clickX <= right + 6 && clickY >= top - 6 && clickY <= bottom + 6) {
         setSelectedItemType('ROI');
-        setSelectedId(r.id);
+        setSelectedId(roi.id);
+        pointerModeRef.current = clickX >= right - 14 && clickY >= bottom - 14 ? 'RESIZE' : 'MOVE';
+        pointerStartRef.current = {
+          x: roi.x, y: roi.y,
+          width: roi.width ?? roi.radius * 2,
+          height: roi.height ?? roi.radius * 2,
+          pointerX: clickX, pointerY: clickY,
+        };
         isDraggingRef.current = true;
         return;
       }
@@ -226,31 +234,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDraggingRef.current || activePointerIdRef.current !== e.pointerId) return;
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
+    const start = pointerStartRef.current;
+    if (!canvas || !start || !selectedId) return;
     const { x: clickX, y: clickY } = getCanvasPoint(e);
+    const dx = (clickX - start.pointerX) / canvas.width;
+    const dy = (clickY - start.pointerY) / canvas.height;
 
-    const normX = Math.max(0.05, Math.min(0.95, clickX / canvas.width));
-    const normY = Math.max(0.05, Math.min(0.95, clickY / canvas.height));
-
-    if (selectedItemType === 'ANCHOR') {
-      setEditedRevision((prev) => ({
-        ...prev,
-        anchors: prev.anchors.map((a) => (a.id === selectedId ? { ...a, x: normX, y: normY } : a)),
-      }));
-    } else if (selectedItemType === 'ROI') {
-      setEditedRevision((prev) => ({
-        ...prev,
-        inspectionROIs: prev.inspectionROIs.map((r) =>
-          r.id === selectedId ? { ...r, x: normX, y: normY } : r
-        ),
-      }));
-    }
+    setEditedRevision((prev) => ({
+      ...prev,
+      inspectionROIs: prev.inspectionROIs.map((roi) => {
+        if (roi.id !== selectedId) return roi;
+        if (pointerModeRef.current === 'RESIZE') {
+          const width = Math.max(0.03, Math.min(0.96, start.width + dx));
+          const height = Math.max(0.03, Math.min(0.96, start.height + dy));
+          const left = start.x - start.width / 2;
+          const top = start.y - start.height / 2;
+          return {
+            ...roi,
+            width,
+            height,
+            x: Math.max(width / 2, Math.min(1 - width / 2, left + width / 2)),
+            y: Math.max(height / 2, Math.min(1 - height / 2, top + height / 2)),
+          };
+        }
+        const width = start.width;
+        const height = start.height;
+        return {
+          ...roi,
+          x: Math.max(width / 2, Math.min(1 - width / 2, start.x + dx)),
+          y: Math.max(height / 2, Math.min(1 - height / 2, start.y + dy)),
+          width,
+          height,
+        };
+      }),
+    }));
   };
 
   const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDraggingRef.current = false;
     activePointerIdRef.current = null;
+    pointerStartRef.current = null;
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
   };
 
@@ -275,6 +298,131 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   };
 
   const selectedReference = editedRevision.referenceImages?.find((reference) => reference.id === selectedReferenceId);
+  const selectedRoi = editedRevision.inspectionROIs.find((roi) => roi.id === selectedId) || editedRevision.inspectionROIs[0];
+
+  const drawReferenceOverlay = () => {
+    const canvas = referenceCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    const image = loadedReferenceImageRef.current;
+    if (!canvas || !ctx || !image || !selectedReference || loadedReferenceIdRef.current !== selectedReference.id) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const roi of editedRevision.inspectionROIs) {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      const layout = selectedReference.roiLayouts?.[roi.id] || {
+        x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+      };
+      const selected = roi.id === selectedId;
+      ctx.strokeStyle = selected ? '#f59e0b' : selectedReference.kind === 'NG' ? '#f87171' : '#34d399';
+      ctx.lineWidth = selected ? 4 : 2;
+      ctx.setLineDash(selected ? [] : [8, 5]);
+      ctx.strokeRect(layout.x * canvas.width, layout.y * canvas.height, layout.width * canvas.width, layout.height * canvas.height);
+      ctx.setLineDash([]);
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillText(roi.name, layout.x * canvas.width + 4, Math.max(16, layout.y * canvas.height - 5));
+      if (selected) ctx.fillRect((layout.x + layout.width) * canvas.width - 9, (layout.y + layout.height) * canvas.height - 9, 18, 18);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !selectedReference?.imageUrl) {
+      loadedReferenceImageRef.current = null;
+      loadedReferenceIdRef.current = null;
+      return;
+    }
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      loadedReferenceImageRef.current = image;
+      loadedReferenceIdRef.current = selectedReference.id;
+      const canvas = referenceCanvasRef.current;
+      if (!canvas) return;
+      canvas.width = image.naturalWidth || 800;
+      canvas.height = image.naturalHeight || 600;
+      drawReferenceOverlay();
+    };
+    image.onerror = () => {
+      loadedReferenceImageRef.current = null;
+      loadedReferenceIdRef.current = null;
+    };
+    image.src = selectedReference.imageUrl;
+  }, [isOpen, selectedReference?.id, selectedReference?.imageUrl]);
+
+  useEffect(() => {
+    drawReferenceOverlay();
+  }, [selectedReference?.roiLayouts, selectedReference?.kind, editedRevision.inspectionROIs, selectedId]);
+
+
+  const getReferenceCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = referenceCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+    const renderedWidth = canvas.width * scale;
+    const renderedHeight = canvas.height * scale;
+    return {
+      x: (e.clientX - rect.left - (rect.width - renderedWidth) / 2) / scale,
+      y: (e.clientY - rect.top - (rect.height - renderedHeight) / 2) / scale,
+    };
+  };
+
+  const handleReferenceCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = referenceCanvasRef.current;
+    if (!canvas || !selectedReference) return;
+    const point = getReferenceCanvasPoint(e);
+    const target = [...editedRevision.inspectionROIs].reverse().find((roi) => {
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      const layout = selectedReference.roiLayouts?.[roi.id] || {
+        x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height,
+      };
+      return point.x >= layout.x * canvas.width && point.x <= (layout.x + layout.width) * canvas.width &&
+        point.y >= layout.y * canvas.height && point.y <= (layout.y + layout.height) * canvas.height;
+    });
+    if (!target) return;
+    canvas.setPointerCapture(e.pointerId);
+    referencePointerIdRef.current = e.pointerId;
+    setSelectedId(target.id);
+    const width = target.width ?? target.radius * 2;
+    const height = target.height ?? target.radius * 2;
+    const layout = selectedReference.roiLayouts?.[target.id] || {
+      x: Math.max(0, target.x - width / 2), y: Math.max(0, target.y - height / 2), width, height,
+    };
+    const right = (layout.x + layout.width) * canvas.width;
+    const bottom = (layout.y + layout.height) * canvas.height;
+    referencePointerModeRef.current = point.x >= right - 18 && point.y >= bottom - 18 ? 'RESIZE' : 'MOVE';
+    referencePointerStartRef.current = { ...layout, pointerX: point.x, pointerY: point.y };
+    referenceDraggingRef.current = true;
+  };
+
+  const handleReferenceCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!referenceDraggingRef.current || referencePointerIdRef.current !== e.pointerId || !selectedReference || !selectedRoi) return;
+    const canvas = referenceCanvasRef.current;
+    const start = referencePointerStartRef.current;
+    if (!canvas || !start) return;
+    const point = getReferenceCanvasPoint(e);
+    const dx = (point.x - start.pointerX) / canvas.width;
+    const dy = (point.y - start.pointerY) / canvas.height;
+    setEditedRevision((prev) => ({
+      ...prev,
+      referenceImages: prev.referenceImages.map((reference) => {
+        if (reference.id !== selectedReference.id) return reference;
+        const old = reference.roiLayouts?.[selectedRoi.id] || { x: start.x, y: start.y, width: start.width, height: start.height };
+        const next: ReferenceRoiLayout = referencePointerModeRef.current === 'RESIZE'
+          ? { ...old, width: Math.max(0.03, Math.min(1 - old.x, start.width + dx)), height: Math.max(0.03, Math.min(1 - old.y, start.height + dy)) }
+          : { ...old, x: Math.max(0, Math.min(1 - old.width, start.x + dx)), y: Math.max(0, Math.min(1 - old.height, start.y + dy)) };
+        return { ...reference, roiLayouts: { ...(reference.roiLayouts || {}), [selectedRoi.id]: next } };
+      }),
+    }));
+  };
+
+  const handleReferenceCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    referenceDraggingRef.current = false;
+    referencePointerIdRef.current = null;
+    referencePointerStartRef.current = null;
+    try { referenceCanvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
+  };
 
   const handleReplaceReferenceImage = (referenceId: string, file: File | null) => {
     if (!file) return;
@@ -309,10 +457,21 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       return;
     }
 
-    const updatedRevisions = master.revisions.map((r) => (r.id === editedRevision.id ? editedRevision : r));
+    const normalizedRevision: MasterRevision = {
+      ...editedRevision,
+      anchors: [],
+      expectedObjectCount: editedRevision.inspectionROIs.length,
+      inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
+        ...roi,
+        objectType: 'component',
+        width: roi.width ?? roi.radius * 2,
+        height: roi.height ?? roi.radius * 2,
+      })),
+    };
+    const normalizedRevisions = master.revisions.map((r) => r.id === normalizedRevision.id ? normalizedRevision : r);
     const updatedMaster: MasterProduct = {
       ...master,
-      revisions: updatedRevisions,
+      revisions: normalizedRevisions,
       updatedAt: new Date().toISOString(),
     };
 
@@ -339,10 +498,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">
-                Master Calibration & ROI Editor · {master.productName} ({editedRevision.revisionCode})
+                Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Position anchors, configure expected screws, and adjust allowable tolerances.
+                Draw rectangular inspection areas, then upload four OK and four NG reference images and adjust each reference layout independently.
               </p>
             </div>
           </div>
@@ -401,7 +560,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   <Images className="h-10 w-10 text-slate-600" />
                   <div>
                     <div className="text-sm font-semibold text-white">Master image not configured</div>
-                    <div className="mt-1 text-xs text-slate-500">Upload the approved full-view image to define the alignment reference.</div>
+                    <div className="mt-1 text-xs text-slate-500">Upload a full-view image to initialize camera ROI coordinates.</div>
                   </div>
                   <label className="cursor-pointer rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20">
                     Upload Master Image
@@ -415,15 +574,15 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-white">
                     <Images className="w-4 h-4 text-cyan-400" />
-                    Reference Image Set
+                    Reference Images · 4 OK + 4 NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Close-up golden references shown side-by-side for judgement verification.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use four OK and four NG examples.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
                     <div className="text-cyan-300">Selected: {selectedReference.label}</div>
-                    <div className="text-slate-500">Linked ROI: {selectedReference.roiId || '—'}</div>
+                    <div className={selectedReference.kind === 'NG' ? 'text-red-300' : 'text-emerald-300'}>Class: {selectedReference.kind || 'OK'}</div>
                   </div>
                 )}
               </div>
@@ -436,16 +595,14 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       key={reference.id}
                       onClick={() => {
                         setSelectedReferenceId(reference.id);
-                        if (reference.roiId) {
-                          setSelectedId(reference.roiId);
-                          setSelectedItemType('ROI');
-                        }
+                        setSelectedItemType('ROI');
+                        if (!selectedId && editedRevision.inspectionROIs[0]) setSelectedId(editedRevision.inspectionROIs[0].id);
                       }}
                       className={`group shrink-0 w-28 rounded-xl border p-1.5 cursor-pointer transition-all ${
                         isSelected ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-950/30' : 'border-slate-800 bg-slate-900 hover:border-slate-600'
                       }`}
                     >
-                      <div className="aspect-square rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
+                      <div className={`aspect-square rounded-lg overflow-hidden bg-slate-950 border ${reference.kind === 'NG' ? 'border-red-500/30' : 'border-emerald-500/30'} flex items-center justify-center`}>
                         {reference.imageUrl ? (
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
@@ -475,7 +632,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
               <div>
                 <div className="text-xs font-semibold text-white">Master Image</div>
-                <div className="text-[10px] font-mono text-slate-500">Full-view image used as the layout and alignment reference.</div>
+                <div className="text-[10px] font-mono text-slate-500">Full-view image used to initialize the camera-side ROI layout.</div>
               </div>
               <label className="shrink-0 cursor-pointer rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-[10px] font-semibold text-cyan-300 hover:border-cyan-500/50">
                 {editedRevision.masterImageUrl ? 'Replace' : 'Upload'}
@@ -486,16 +643,16 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2">
               <div className="flex items-center gap-2 text-[10px] font-mono text-slate-300">
                 <span className="inline-block h-3 w-3 rounded-full border-2 border-blue-500"></span>
-                BLUE = nominal / OK position
+                GREEN = rectangular ROI
               </div>
               <div className="flex items-center gap-2 text-[10px] font-mono text-slate-300">
                 <span className="inline-block h-3 w-3 rounded-full border-2 border-yellow-400 border-dashed"></span>
-                YELLOW = absolute tolerance boundary
+                AMBER handle = resize selected ROI
               </div>
-              <div className="text-[10px] font-mono text-cyan-300">Drag any blue point to match the actual screw.</div>
+              <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>Master image = layout/alignment reference. Close-up references = visual evidence for each inspection point.</span>
+              <span>Each reference image has its own editable ROI layout. The live crop is classified against four OK and four NG examples.</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
@@ -567,29 +724,54 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
             {activeTab === 'VISUAL' && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono uppercase tracking-wider text-slate-400">
-                    Inspection Screws
-                  </span>
-                  <span className="text-[10px] font-mono text-cyan-300">8 required</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-mono uppercase tracking-wider text-slate-400">Rectangular Inspection Areas</span>
+                    <div className="text-[10px] text-slate-500 mt-1">Add, move, resize, and assign an OK reference.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = 'roi-' + Date.now();
+                      const newRoi: InspectionROI = {
+                        id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
+                        objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
+                        width: 0.2, height: 0.2, toleranceRadius: 0.05,
+                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast',
+                      };
+                      const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
+                      setEditedRevision((prev) => ({
+                        ...prev,
+                        expectedObjectCount: prev.inspectionROIs.length + 1,
+                        inspectionROIs: [...prev.inspectionROIs, newRoi],
+                        referenceImages: prev.referenceImages.map((reference) => ({
+                          ...reference,
+                          roiLayouts: { ...(reference.roiLayouts || {}), [id]: defaultLayout },
+                        })),
+                      }));
+                      setSelectedId(id);
+                      setSelectedItemType('ROI');
+                    }}
+                    className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-2 text-[10px] font-bold text-emerald-300"
+                  ><Plus className="h-3.5 w-3.5" /> Add ROI</button>
                 </div>
 
                 {selectedReference && (
-                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 mb-2">Selected Golden Reference</div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-20 rounded-lg border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0">
-                        {selectedReference.imageUrl ? (
-                          <img src={selectedReference.imageUrl} alt={selectedReference.label} className="w-full h-full rounded-lg object-cover" />
-                        ) : (
-                          <span className="text-[8px] font-mono font-bold text-amber-400 text-center">UPLOAD</span>
-                        )}
+                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className={`text-[10px] font-mono uppercase tracking-wider mb-1 ${selectedReference.kind === 'NG' ? 'text-red-300' : 'text-emerald-300'}`}>Edit layout · {selectedReference.label}</div>
+                        <div className="text-[10px] text-slate-400">Select an ROI below, then drag its rectangle or bottom-right handle.</div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-white">{selectedReference.label}</div>
-                        <div className="text-[10px] font-mono text-slate-500 mt-1">{selectedReference.description || 'Reference evidence for the selected inspection point.'}</div>
-                      </div>
+                      <span className="text-[10px] font-mono text-slate-500">{selectedRoi?.name || 'No ROI'}</span>
                     </div>
+                    {selectedReference.imageUrl ? (
+                      <div className="h-64 rounded-lg overflow-hidden border border-slate-700 bg-slate-950 flex items-center justify-center">
+                        <canvas ref={referenceCanvasRef} onPointerDown={handleReferenceCanvasPointerDown} onPointerMove={handleReferenceCanvasPointerMove} onPointerUp={handleReferenceCanvasPointerUp} onPointerCancel={handleReferenceCanvasPointerUp} style={{ touchAction: 'none' }} className="w-full h-full object-contain cursor-crosshair" />
+                      </div>
+                    ) : (
+                      <div className="h-28 rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-xs text-amber-300">Upload this reference image first to edit its layout.</div>
+                    )}
                   </div>
                 )}
 
@@ -603,8 +785,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         onClick={() => {
                           setSelectedId(roi.id);
                           setSelectedItemType('ROI');
-                          const matchingReference = editedRevision.referenceImages?.find((reference) => reference.roiId === roi.id);
-                          if (matchingReference) setSelectedReferenceId(matchingReference.id);
+                          // Keep the selected reference independent from the selected ROI layout.
                         }}
                         className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
                           isSelected
@@ -628,13 +809,35 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                             className="bg-transparent font-bold text-white font-mono focus:outline-none focus:border-b border-cyan-400"
                           />
 
+                          <button
+                            type="button"
+                            title="Remove ROI"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const remaining = editedRevision.inspectionROIs.filter((item) => item.id !== roi.id);
+                              setEditedRevision((prev) => ({
+                                ...prev,
+                                expectedObjectCount: remaining.length,
+                                inspectionROIs: remaining,
+                                referenceImages: (prev.referenceImages || []).map((reference) => {
+                                  const roiLayouts = { ...(reference.roiLayouts || {}) };
+                                  delete roiLayouts[roi.id];
+                                  return { ...reference, roiLayouts };
+                                }),
+                              }));
+                              if (selectedId === roi.id) {
+                                setSelectedId(remaining[0]?.id || '');
+                              }
+                            }}
+                            className="rounded-md p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-300"
+                          ><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400">
-                          <div>Pos X: {(roi.x * 100).toFixed(1)}%</div>
-                          <div>Pos Y: {(roi.y * 100).toFixed(1)}%</div>
-                          <div>Min Conf: {(roi.minConfidence * 100).toFixed(0)}%</div>
-                          <div>Type: {roi.objectType}</div>
+                          <div>Width: {((roi.width ?? roi.radius * 2) * 100).toFixed(1)}%</div>
+                          <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
+                          <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
+                          <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length === 4 && editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length === 4 ? "8 refs" : "Need 4 OK + 4 NG"}</div>
                         </div>
                       </div>
                     );
@@ -646,42 +849,41 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             {activeTab === 'TOLERANCES' && (
               <div className="space-y-4">
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
-                  {/* Position Offset Tolerance */}
                   <div>
                     <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Position Tolerance:</span>
+                      <span className="text-slate-300">Selected ROI Similarity Threshold:</span>
                       <span className="text-cyan-400 font-bold">
-                        ±{editedRevision.tolerance.maxPositionOffsetMm} mm ({editedRevision.tolerance.maxPositionOffsetPx} px)
+                        {selectedRoi ? (selectedRoi.minConfidence * 100).toFixed(0) + '%' : 'Select ROI'}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min="1.0"
-                      max="6.0"
-                      step="0.5"
-                      value={editedRevision.tolerance.maxPositionOffsetMm}
+                      min="0.5"
+                      max="0.98"
+                      step="0.02"
+                      disabled={!selectedRoi}
+                      value={selectedRoi?.minConfidence ?? 0.75}
                       onChange={(e) => {
-                        const mm = parseFloat(e.target.value);
+                        const threshold = parseFloat(e.target.value);
+                        if (!selectedRoi) return;
                         setEditedRevision((prev) => ({
                           ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            maxPositionOffsetMm: mm,
-                            maxPositionOffsetPx: Math.round(mm * 10),
-                          },
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, minConfidence: threshold } : roi
+                          ),
                         }));
                       }}
                       className="w-full accent-cyan-500"
                     />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">
+                      A higher threshold requires stronger similarity to the OK class than to the NG class.
+                    </p>
                   </div>
 
-                  {/* Stabilization Delay */}
                   <div>
                     <div className="flex justify-between text-xs font-mono mb-1">
                       <span className="text-slate-300">Stabilization Delay:</span>
-                      <span className="text-cyan-400 font-bold">
-                        {editedRevision.tolerance.stabilizationDelayMs} ms
-                      </span>
+                      <span className="text-cyan-400 font-bold">{editedRevision.tolerance.stabilizationDelayMs} ms</span>
                     </div>
                     <input
                       type="range"
@@ -690,80 +892,25 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       step="50"
                       value={editedRevision.tolerance.stabilizationDelayMs}
                       onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
+                        const value = parseInt(e.target.value, 10);
                         setEditedRevision((prev) => ({
                           ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            stabilizationDelayMs: val,
-                          },
+                          tolerance: { ...prev.tolerance, stabilizationDelayMs: value },
                         }));
                       }}
                       className="w-full accent-cyan-500"
                     />
                     <p className="text-[10px] text-slate-500 font-mono mt-1">
-                      Time camera waits after part entry to ensure vibration/settle stops.
+                      Wait time after the product enters the camera zone before comparison.
                     </p>
                   </div>
-
-                  {/* Minimum Screw Confidence */}
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Detection Confidence:</span>
-                      <span className="text-cyan-400 font-bold">
-                        {(editedRevision.tolerance.minScrewConfidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.4"
-                      max="0.9"
-                      step="0.05"
-                      value={editedRevision.tolerance.minScrewConfidence}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setEditedRevision((prev) => ({
-                          ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            minScrewConfidence: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-cyan-500"
-                    />
-                  </div>
-
-                  {/* Rotation Tolerance */}
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Max Rotation Allowed:</span>
-                      <span className="text-cyan-400 font-bold">
-                        ±{editedRevision.tolerance.maxRotationToleranceDeg}°
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="30"
-                      step="1"
-                      value={editedRevision.tolerance.maxRotationToleranceDeg}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        setEditedRevision((prev) => ({
-                          ...prev,
-                          tolerance: {
-                            ...prev.tolerance,
-                            maxRotationToleranceDeg: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-cyan-500"
-                    />
-                  </div>
+                </div>
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
+                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against four OK and four NG reference crops, using the layout saved separately for each reference image.
                 </div>
               </div>
             )}
+
           </div>
         </div>
       </div>

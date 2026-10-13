@@ -97,10 +97,20 @@ export const InspectionHistoryView: React.FC<InspectionHistoryViewProps> = ({ on
   };
 
   const handleClearHistory = async () => {
-    if (confirm('Clear all inspection database records? This action cannot be undone.')) {
+    if (!confirm('Clear all inspection history and reset the live Total Count, OK, NG, Yield Rate, and cycle-time statistics? This action cannot be undone.')) return;
+
+    try {
+      setIsLoading(true);
       await dbService.clearInspectionHistory();
-      fetchRecords();
-      onRefreshStats();
+      setRecords([]);
+      setSelectedRecord(null);
+      await onRefreshStats();
+      await fetchRecords();
+    } catch (error) {
+      console.error('[Clear History]', error);
+      window.alert('Could not fully clear inspection history. Check the application logs and database connection.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -133,7 +143,7 @@ export const InspectionHistoryView: React.FC<InspectionHistoryViewProps> = ({ on
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 text-xs hover:text-red-400 hover:border-red-900/60"
           >
             <Trash2 className="w-4 h-4" />
-            <span>Clear Log</span>
+            <span>Clear History & Counters</span>
           </button>
         </div>
       </div>

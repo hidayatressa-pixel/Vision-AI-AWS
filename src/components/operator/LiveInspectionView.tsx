@@ -26,7 +26,6 @@ import { MasterProduct, MasterRevision } from '../../types/master';
 import type { UserRole } from '../Navbar';
 import { PLCHandshakeState, PLCLiveSignals } from '../../types/plc';
 import { TestScenarioType } from '../../vision/testGenerator';
-import { PLCStatusPanel } from '../plc/PLCStatusPanel';
 import { MetricsBar } from './MetricsBar';
 import { StatusDisplay } from './StatusDisplay';
 
@@ -79,13 +78,10 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   stabilizationProgress,
   motionDelta,
   currentResult,
-  latestAlignment,
   latestRoiResults,
   latestExtraObjects,
   stats,
   liveMetrics,
-  plcHandshake,
-  plcSignals,
   activeMaster,
   activeRevision,
   role,
@@ -95,7 +91,6 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   enableVirtualMode,
   enablePhysicalCamera,
   onOpenHistory,
-  onOpenPlcConfig,
   onEndSession,
   onStartSession,
   sessionActive = false,
@@ -117,7 +112,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
     }
   };
 
-  // Render visual inspection overlays (Detection Zone, Anchors, Transformed ROIs)
+  // Render the detection zone and rectangular ROI comparison overlays
   useEffect(() => {
     let animId: number;
 
@@ -173,85 +168,35 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
       ctx.fillStyle = ctx.strokeStyle;
       ctx.fillText('DETECTION ZONE', dzX + 8, dzY + 16);
 
-      // 2. Draw Reference Anchors. After alignment, show the actual detected
-      // anchor positions so the HUD uses the same coordinate transform as the
-      // vision engine. Before alignment, show the nominal master positions.
-      for (const anchor of activeRevision.anchors) {
-        const matched = latestAlignment?.anchorPositions?.find((item) => item.id === anchor.id);
-        const ax = matched ? matched.found.x : anchor.x * w;
-        const ay = matched ? matched.found.y : anchor.y * h;
-
-        // Crosshair
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(ax, ay, 8, 0, Math.PI * 2);
-        ctx.moveTo(ax - 12, ay);
-        ctx.lineTo(ax + 12, ay);
-        ctx.moveTo(ax, ay - 12);
-        ctx.lineTo(ax, ay + 12);
-        ctx.stroke();
-
-        ctx.font = 'bold 9px monospace';
-        ctx.fillStyle = '#38bdf8';
-        ctx.fillText(anchor.name.split(' ')[0], ax + 12, ay - 4);
-      }
-
-      // 3. Draw Transformed ROIs (if alignment was computed or default master positions)
+      // 2. Draw each configured rectangular comparison region.
       if (latestRoiResults.length > 0) {
-        for (const r of latestRoiResults) {
-          const expX = r.expectedTransformedPosition.x * w;
-          const expY = r.expectedTransformedPosition.y * h;
-          const rPx = 22;
-
-          // Status coloring
-          const isPass = r.status === 'PASS';
-          const color = isPass ? '#10b981' : '#ef4444';
-
-          // Outer tolerance ring
+        for (const result of latestRoiResults) {
+          const config = activeRevision.inspectionROIs.find((roi) => roi.id === result.roiId);
+          if (!config) continue;
+          const rw = (config.width ?? config.radius * 2) * w;
+          const rh = (config.height ?? config.radius * 2) * h;
+          const centerX = result.expectedTransformedPosition.x * w;
+          const centerY = result.expectedTransformedPosition.y * h;
+          const left = centerX - rw / 2;
+          const top = centerY - rh / 2;
+          const color = result.status === 'PASS' ? '#10b981' : result.status === 'FAIL' ? '#ef4444' : '#f59e0b';
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(expX, expY, rPx, 0, Math.PI * 2);
-          ctx.stroke();
-
-          // Actual detected center offset
-          if (r.actualDetectedPosition) {
-            const actX = r.actualDetectedPosition.x * w;
-            const actY = r.actualDetectedPosition.y * h;
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(actX, actY, 4, 0, Math.PI * 2);
-            ctx.fill();
-
-            if (!r.isWithinTolerance) {
-              // Draw offset line
-              ctx.strokeStyle = '#f59e0b';
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.moveTo(expX, expY);
-              ctx.lineTo(actX, actY);
-              ctx.stroke();
-            }
-          }
-
-          // Label
+          ctx.strokeRect(left, top, rw, rh);
           ctx.font = 'bold 10px monospace';
           ctx.fillStyle = color;
-          ctx.textAlign = 'center';
-          ctx.fillText(r.roiName, expX, expY + rPx + 14);
+          ctx.textAlign = 'start';
+          ctx.fillText(`${result.roiName} ${Math.round(result.confidence * 100)}%`, left + 3, Math.max(12, top - 4));
         }
       } else {
-        // Show master expected ROIs in default untransformed state
         for (const roi of activeRevision.inspectionROIs) {
-          const rx = roi.x * w;
-          const ry = roi.y * h;
+          const rw = (roi.width ?? roi.radius * 2) * w;
+          const rh = (roi.height ?? roi.radius * 2) * h;
           ctx.strokeStyle = '#64748b';
           ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(rx, ry, 20, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.setLineDash([5, 4]);
+          ctx.strokeRect(roi.x * w - rw / 2, roi.y * h - rh / 2, rw, rh);
+          ctx.setLineDash([]);
         }
       }
 
@@ -281,7 +226,6 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   }, [
     activeRevision,
     currentResult,
-    latestAlignment,
     latestExtraObjects,
     latestRoiResults,
     showOverlays,
@@ -321,14 +265,9 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
               <span className="text-amber-300">DET {processingFps} FPS</span>
             </span>
 
-            {latestAlignment && (
-              <span className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-700/80 text-[11px] font-mono text-slate-300 backdrop-blur-sm">
-                <span>dX: {latestAlignment.translationX > 0 ? `+${latestAlignment.translationX}` : latestAlignment.translationX}px</span>
-                <span>dY: {latestAlignment.translationY > 0 ? `+${latestAlignment.translationY}` : latestAlignment.translationY}px</span>
-                <span>Rot: {latestAlignment.rotationDeg > 0 ? `+${latestAlignment.rotationDeg}` : latestAlignment.rotationDeg}°</span>
-                <span className="text-emerald-400">{(latestAlignment.confidence * 100).toFixed(0)}% Match</span>
-              </span>
-            )}
+            <span className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900/90 border border-emerald-500/30 text-[11px] font-mono text-emerald-300 backdrop-blur-sm">
+              SIMPLE ROI · REFERENCE COMPARISON · FIXED CAMERA
+            </span>
           </div>
 
           {!sessionActive && onStartSession && (
@@ -491,13 +430,13 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
                 onChange={(e) => enableVirtualMode(e.target.value as TestScenarioType)}
                 className="bg-slate-950 text-cyan-300 font-mono text-xs border border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500"
               >
-                <option value="PERFECT_PASS">🟢 Master Pass (All 8 Screws OK)</option>
-                <option value="SHIFTED_VIBRATION">🔄 Shifted & Rotated (+14px, +2.4° - Alignment Test: PASS)</option>
-                <option value="MISSING_SCREW_4">🔴 Defect: Screw #4 Missing (NG)</option>
-                <option value="MISSING_SCREW_2">🔴 Defect: Screw #2 Missing (NG)</option>
-                <option value="OUT_OF_TOLERANCE_SCREW_2">🔴 Defect: Screw #2 Out of Tolerance (+4.2mm) (NG)</option>
-                <option value="EXTRA_SCREW">🔴 Defect: Extra Screw Present (NG)</option>
-                <option value="ALIGNMENT_FAILURE">⚠️ Alignment Error: Fiducials Obstructed</option>
+                <option value="PERFECT_PASS">🟢 Approved Reference Match (OK)</option>
+                <option value="SHIFTED_VIBRATION">🔄 Shifted Image Pattern (visual test)</option>
+                <option value="MISSING_SCREW_4">🔴 Visual Mismatch A (NG)</option>
+                <option value="MISSING_SCREW_2">🔴 Visual Mismatch B (NG)</option>
+                <option value="OUT_OF_TOLERANCE_SCREW_2">🔴 Visual Difference (NG)</option>
+                <option value="EXTRA_SCREW">🔴 Unexpected Visual Pattern (NG)</option>
+                <option value="ALIGNMENT_FAILURE">⚠️ Camera Comparison Unavailable</option>
                 <option value="EMPTY_STAND">⏳ Empty Stand (Part Removed)</option>
               </select>
             </div>
@@ -511,11 +450,10 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
       <MetricsBar stats={stats} liveMetrics={liveMetrics} motionDelta={motionDelta} />
 
       {/* 4. Industrial PLC Interlock & Handshake Status Panel (Section 46) */}
-      <PLCStatusPanel
-        plcHandshake={plcHandshake}
-        plcSignals={plcSignals}
-        onOpenSettings={onOpenPlcConfig}
-      />
+      <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs font-mono text-amber-200">
+        <span className="h-2 w-2 rounded-full bg-amber-400" />
+        PLC DISABLED · MVP LOCAL INSPECTION MODE · NO MACHINE INTERLOCK
+      </div>
 
       {/* 5. Per-ROI Realtime Status Breakdown (Explainable Visual Inspector) */}
       {activeRevision && latestRoiResults.length > 0 && (
@@ -525,14 +463,10 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
               <Crosshair className="w-4 h-4 text-cyan-400" />
               <span className="font-bold text-sm text-white">ROI DETAILED VALIDATION MATRIX</span>
               <span className="text-xs text-slate-400 font-mono">
-                ({latestRoiResults.filter((r) => r.status === 'PASS').length}/{latestRoiResults.length} Screws Valid)
+                ({latestRoiResults.filter((r) => r.status === 'PASS').length}/{latestRoiResults.length} ROIs Matched)
               </span>
             </div>
-            {latestAlignment && (
-              <span className="text-xs font-mono text-slate-400">
-                Transformed via Affine Reference Alignment
-              </span>
-            )}
+            <span className="text-xs font-mono text-slate-400">Reference-image similarity</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -556,20 +490,14 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
 
                 <div className="text-[11px] font-mono space-y-0.5">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Presence:</span>
-                    <span className={roi.isPresent ? 'text-emerald-400' : 'text-red-400'}>
-                      {roi.isPresent ? 'OK' : 'MISSING'}
+                    <span className="text-slate-400">Evidence:</span>
+                    <span className={roi.isPresent ? 'text-emerald-400' : 'text-amber-400'}>
+                      {roi.isPresent ? 'AVAILABLE' : 'UNAVAILABLE'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Confidence:</span>
+                    <span className="text-slate-400">Similarity:</span>
                     <span>{(roi.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Offset:</span>
-                    <span className={roi.isWithinTolerance ? 'text-slate-200' : 'text-red-400 font-bold'}>
-                      +{roi.positionOffsetMm}mm
-                    </span>
                   </div>
                 </div>
 
