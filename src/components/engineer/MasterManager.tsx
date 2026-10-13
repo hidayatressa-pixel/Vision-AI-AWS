@@ -195,6 +195,9 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                       <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
                         {previewRevision.inspectionROIs.length} INSPECTION POINTS
                       </span>
+                      <span className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-sky-300">
+                        {previewRevision.anchors?.length ?? 0} ANCHORS
+                      </span>
                       <span className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
                         {previewRevision.masterWidth}×{previewRevision.masterHeight}
                       </span>
