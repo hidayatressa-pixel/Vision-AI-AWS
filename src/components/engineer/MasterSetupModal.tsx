@@ -588,6 +588,21 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 )}
               </div>
 
+              <div className="flex flex-wrap gap-2">
+                {(["OK", "NG"] as const).map((kind) => (
+                  <button key={kind} type="button" onClick={() => {
+                    const id = editedRevision.id + "-" + kind.toLowerCase() + "-" + Date.now();
+                    const layouts: Record<string, ReferenceRoiLayout> = {};
+                    editedRevision.inspectionROIs.forEach((roi) => { const width = roi.width ?? roi.radius * 2; const height = roi.height ?? roi.radius * 2; layouts[roi.id] = { x: Math.max(0, roi.x - width / 2), y: Math.max(0, roi.y - height / 2), width, height }; });
+                    const reference: ReferenceImage = { id, label: kind + " Reference " + (editedRevision.referenceImages.filter((item) => (item.kind || "OK") === kind).length + 1), imageUrl: "", kind, roiLayouts: layouts };
+                    setEditedRevision((prev) => ({ ...prev, referenceImages: [...prev.referenceImages, reference] }));
+                    setSelectedReferenceId(id);
+                  }} className="rounded-lg border border-slate-700 px-3 py-1.5 text-[10px] font-bold text-cyan-300">+ Add {kind} Reference</button>
+                ))}
+                {selectedReference && editedRevision.referenceImages.filter((item) => (item.kind || "OK") === (selectedReference.kind || "OK")).length > 1 && (
+                  <button type="button" onClick={() => { const remaining = editedRevision.referenceImages.filter((item) => item.id !== selectedReference.id); setEditedRevision((prev) => ({ ...prev, referenceImages: remaining })); setSelectedReferenceId(remaining[0]?.id || ""); }} className="rounded-lg border border-slate-700 px-3 py-1.5 text-[10px] font-bold text-slate-300">Remove Selected Reference</button>
+                )}
+              </div>
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {(editedRevision.referenceImages || []).map((reference) => {
                   const isSelected = reference.id === selectedReferenceId;
@@ -854,6 +869,17 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Width: {((roi.width ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            <span>Comparison:</span>
+                            <select value={roi.comparisonMode ?? "BALANCED"} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const comparisonMode = event.target.value as NonNullable<InspectionROI["comparisonMode"]>;
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, comparisonMode } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="BALANCED">Balanced</option>
+                              <option value="STRUCTURE_FIRST">Structure first</option>
+                              <option value="INTENSITY_FIRST">Intensity first</option>
+                            </select>
+                          </div>
                           <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length} OK / {editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length} NG</div>
                         </div>
                       </div>
