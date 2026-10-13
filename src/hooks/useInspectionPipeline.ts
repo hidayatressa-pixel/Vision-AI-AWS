@@ -159,6 +159,7 @@ export function useInspectionPipeline({
 
     const regionStats = getRegionStats(gray, rx, ry, rw, rh);
     presenceDetectorRef.current.setBaseline(regionStats);
+    presenceDetectorRef.current.setBaselineFrame(gray);
   }, [captureFrame]);
 
   // Start a controlled inspection session. Baseline is captured only after
@@ -167,6 +168,7 @@ export function useInspectionPipeline({
     if (sessionActive || !activeRevisionRef.current) return false;
 
     const samples: { mean: number; variance: number }[] = [];
+    const baselineFrames: ReturnType<typeof toGrayscale>[] = [];
     const revision = activeRevisionRef.current;
 
     for (let i = 0; i < 5; i += 1) {
@@ -182,6 +184,7 @@ export function useInspectionPipeline({
           dz.height * gray.height
         );
         samples.push(stats);
+        baselineFrames.push(gray);
       }
       if (i < 4) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
@@ -194,6 +197,28 @@ export function useInspectionPipeline({
       mean: samples.reduce((sum, sample) => sum + sample.mean, 0) / samples.length,
       variance: samples.reduce((sum, sample) => sum + sample.variance, 0) / samples.length,
     };
+
+    // Average several empty-scene frames to reduce transient sensor noise
+    // before storing the pixel-level baseline used by local change detection.
+    const firstFrame = baselineFrames[0];
+    if (firstFrame) {
+      const averaged = new Uint8Array(firstFrame.data.length);
+      for (let pixel = 0; pixel < averaged.length; pixel += 1) {
+        let sum = 0;
+        let count = 0;
+        for (const sample of baselineFrames) {
+          if (sample.width !== firstFrame.width || sample.height !== firstFrame.height) continue;
+          sum += sample.data[pixel];
+          count += 1;
+        }
+        averaged[pixel] = Math.round(sum / Math.max(1, count));
+      }
+      presenceDetectorRef.current.setBaselineFrame({
+        width: firstFrame.width,
+        height: firstFrame.height,
+        data: averaged,
+      });
+    }
 
     presenceDetectorRef.current.resetPartState();
     presenceDetectorRef.current.setBaseline(baseline);

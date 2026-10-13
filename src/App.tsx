@@ -65,7 +65,7 @@ export default function App() {
   const [saveError, setSaveError] = useState('');
   const remoteSession = useMemo(() => createRemoteCameraSession(), []);
 
-  const cameraOptions = React.useMemo(() => ({ preferredFacingMode: 'environment' as const, preferredResolution: { width: 800, height: 600 } }), []);
+  const cameraOptions = React.useMemo(() => ({ preferredFacingMode: 'environment' as const, preferredResolution: { width: 1280, height: 720 } }), []);
   const camera = useCamera({ ...cameraOptions, sourceMode: cameraSourceMode });
   const pipeline = useInspectionPipeline({ activeMaster, activeRevision, captureFrame: camera.captureFrame, cameraState: camera.cameraState, fps: camera.fps, processingFps, sessionActive });
 
