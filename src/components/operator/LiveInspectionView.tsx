@@ -78,6 +78,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
   stabilizationProgress,
   motionDelta,
   currentResult,
+  latestAlignment,
   latestRoiResults,
   latestExtraObjects,
   stats,
@@ -267,6 +268,14 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
 
             <span className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900/90 border border-emerald-500/30 text-[11px] font-mono text-emerald-300 backdrop-blur-sm">
               {activeMaster?.productName || 'NO PRODUCT'} · {activeRevision?.revisionCode || 'NO REVISION'} · {activeRevision?.inspectionROIs.length ?? 0} POINTS
+            </span>
+            <span
+              title={latestAlignment?.errorMessage || 'Anchor status from the latest inspection'}
+              className={`hidden lg:flex items-center px-2.5 py-1 rounded-md bg-slate-900/90 border text-[11px] font-mono backdrop-blur-sm ${
+                latestAlignment?.success ? 'border-emerald-500/30 text-emerald-300' : latestAlignment ? 'border-rose-500/40 text-rose-300' : 'border-slate-700 text-slate-400'
+              }`}
+            >
+              ANCHORS {latestAlignment ? `${latestAlignment.matchedAnchorCount}/${latestAlignment.totalAnchorCount}` : '—'}
             </span>
           </div>
 
