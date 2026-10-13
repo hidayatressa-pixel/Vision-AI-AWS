@@ -36,10 +36,13 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
   const currentMaster = masters.find((m) => m.id === selectedMasterId) || masters[0];
   const previewRevision = currentMaster?.revisions.find((r) => r.id === currentMaster.activeRevisionId) || currentMaster?.revisions[0];
-  const activeMasterChecks = activeRevision ? getMasterValidationChecks(activeRevision) : [];
-  const activeMasterReady = Boolean(activeRevision) && activeMasterChecks.every((check) => check.valid);
+  const previewRevisionChecks = previewRevision ? getMasterValidationChecks(previewRevision) : [];
+  const previewRevisionReady = Boolean(previewRevision) && previewRevisionChecks.every((check) => check.valid);
 
   const handleActivateRevision = async (master: MasterProduct, revisionId: string) => {
+    const revisionToActivate = master.revisions.find((revision) => revision.id === revisionId);
+    if (!revisionToActivate || !getMasterValidationChecks(revisionToActivate).every((check) => check.valid)) return;
+
     const updated: MasterProduct = {
       ...master,
       activeRevisionId: revisionId,
@@ -235,9 +238,9 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                   </span>
                 </div>
                 <div className="mt-2 text-[10px] font-mono text-slate-500">
-                  {activeMasterChecks.filter((check) => !check.valid).length === 0
-                    ? 'All validation checks are currently PASS.'
-                    : activeMasterChecks.filter((check) => !check.valid).length + ' validation item(s) will be shown in the Validation Center.'}
+                  {previewRevisionChecks.filter((check) => !check.valid).length === 0
+                    ? 'Selected product revision passes all setup checks.'
+                    : previewRevisionChecks.filter((check) => !check.valid).length + ' setup item(s) must be corrected before activation.'}
                 </div>
               </div>
 
@@ -323,6 +326,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                           {!isActiveRev && (
                             <button
                               onClick={() => handleActivateRevision(currentMaster, rev.id)}
+                              disabled={!getMasterValidationChecks(rev).every((check) => check.valid)}
+                              title={!getMasterValidationChecks(rev).every((check) => check.valid) ? 'Complete master, anchors, and real OK/NG references before activation' : 'Activate this validated revision'}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm"
                             >
                               <Check className="w-3.5 h-3.5" />
