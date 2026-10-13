@@ -513,7 +513,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
-        objectType: 'component',
+        objectType: roi.objectType || 'component',
         width: roi.width ?? roi.radius * 2,
         height: roi.height ?? roi.radius * 2,
       })),
