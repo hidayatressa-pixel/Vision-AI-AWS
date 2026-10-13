@@ -66,7 +66,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     };
     // Preserve all saved examples. New products start with one OK and one NG slot.
     const normalized: ReferenceImage[] = oldReferences.map((source, index) => {
-      const kind = source.kind || 'OK';
+      const legacyKind = oldReferences.length > 1 && !oldReferences.some((item) => item.kind) ? (index < Math.ceil(oldReferences.length / 2) ? 'OK' : 'NG') : 'OK';
+      const kind = source.kind || legacyKind;
       const roiLayouts: Record<string, ReferenceRoiLayout> = {};
       revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
       return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
@@ -538,7 +539,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Draw rectangular inspection areas, then upload four OK and four NG reference images and adjust each reference layout independently.
+                Configure this product's inspection areas and any number of OK/NG reference examples.
               </p>
             </div>
           </div>
@@ -985,7 +986,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against four OK and four NG reference crops, using the layout saved separately for each reference image.
+                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against the configured OK/NG reference crops, using the layout saved separately for each reference image.
                 </div>
               </div>
             )}
