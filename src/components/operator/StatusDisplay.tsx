@@ -91,7 +91,7 @@ export const StatusDisplay: React.FC<StatusDisplayProps> = ({
             </div>
           </div>
           <div className="text-right hidden sm:block">
-            <div className="text-xs uppercase tracking-widest text-red-300 font-mono">Screw Count</div>
+            <div className="text-xs uppercase tracking-widest text-red-300 font-mono">Inspection Points</div>
             <div className="text-2xl font-mono font-bold text-white">
               {currentResult?.detectedCount || 0} / {currentResult?.expectedCount || expectedCount}
             </div>
@@ -121,6 +121,26 @@ export const StatusDisplay: React.FC<StatusDisplayProps> = ({
             <span className="hidden md:inline text-red-400/80">Result Logged to Database</span>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Invalid means the system lacks trustworthy evidence; never present it as product NG or OK.
+  if (state === 'INSPECTION_INVALID' || currentResult?.judgement === 'INVALID') {
+    return (
+      <div className="bg-amber-950 border border-amber-500 rounded-xl p-5 text-white shadow-lg">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400">
+            <AlertTriangle className="w-10 h-10" />
+          </div>
+          <div>
+            <div className="text-2xl sm:text-3xl font-black text-amber-300">INSPECTION INVALID</div>
+            <div className="text-xs font-mono mt-1 text-amber-200">PROCESS BLOCKED · NO OK/NG CLAIM</div>
+            <p className="text-sm text-amber-100 mt-2 font-mono">
+              {currentResult?.primaryReason || 'Selected product revision is not ready. Verify the original master image, anchor configuration, and genuine OK/NG references before starting.'}
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -168,7 +188,7 @@ export const StatusDisplay: React.FC<StatusDisplayProps> = ({
               <p className="text-xs sm:text-sm text-slate-300 font-mono mt-1">
                 {state === 'STABILIZING'
                   ? `Settle delay: (${pct}%) · Checking camera vibration & motion`
-                  : 'Aligning reference anchors & evaluating screw ROIs...'}
+                  : 'Aligning reference anchors & evaluating configured inspection areas...'}
               </p>
             </div>
           </div>
