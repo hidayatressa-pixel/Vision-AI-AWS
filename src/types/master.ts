@@ -50,6 +50,9 @@ export interface ReferenceImage {
 
 export type InspectionObjectType = 'screw' | 'connector' | 'clip' | 'label' | 'component';
 
+/** Selects which visual signal receives the greatest weight during reference comparison. */
+export type RoiComparisonMode = 'BALANCED' | 'STRUCTURE_FIRST' | 'INTENSITY_FIRST';
+
 export interface InspectionROI {
   id: string;
   name: string;
@@ -64,6 +67,8 @@ export interface InspectionROI {
   minConfidence: number;
   isRequired: boolean;
   expectedPolarity?: 'bright_on_dark' | 'dark_on_bright' | 'contrast';
+  /** Backward-compatible default is BALANCED. */
+  comparisonMode?: RoiComparisonMode;
 }
 
 export interface ToleranceConfig {
