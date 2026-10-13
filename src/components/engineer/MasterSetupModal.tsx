@@ -538,12 +538,12 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   }, [editedRevision]);
 
     const readImageDimensions = (src: string): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
-    if (!src.trim()) return reject(new Error('Master image is missing.'));
+    if (!src.trim()) return reject(new Error('Image is missing.'));
     const image = new Image();
     image.onload = () => image.naturalWidth > 0 && image.naturalHeight > 0
       ? resolve({ width: image.naturalWidth, height: image.naturalHeight })
       : reject(new Error('Master image dimensions are invalid.'));
-    image.onerror = () => reject(new Error('Master image could not be loaded. Please upload the original image again.'));
+    image.onerror = () => reject(new Error('An uploaded master/reference image could not be loaded. Please upload the original image again.'));
     image.src = src;
   });
 
@@ -565,8 +565,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     let actualMasterDimensions: { width: number; height: number };
     try {
       actualMasterDimensions = await readImageDimensions(editedRevision.masterImageUrl);
+      const uploadedReferences = (editedRevision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl?.trim()));
+      await Promise.all(uploadedReferences.map((reference) => readImageDimensions(reference.imageUrl)));
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Master image could not be validated.');
+      setSaveError(error instanceof Error ? error.message : 'Master/reference images could not be validated.');
       return;
     }
 
