@@ -21,6 +21,7 @@ function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): Reference
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
+  const anchors = revision.anchors || [];
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
@@ -43,6 +44,14 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       roi.x + width / 2 <= 1 && roi.y + height / 2 <= 1 &&
       Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98;
   });
+  const anchorIdsAreUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
+    anchors.every((anchor) => Boolean(anchor.id?.trim()));
+  const anchorsHaveValidGeometry = anchors.every((anchor) =>
+    isNormalized(anchor.x) && isNormalized(anchor.y) &&
+    Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 && anchor.searchRadius <= 0.5 &&
+    Number.isFinite(anchor.patchRadius) && anchor.patchRadius >= 4 && anchor.patchRadius <= 20
+  );
+  const anchorsValid = anchors.length >= 3 && anchorIdsAreUnique && anchorsHaveValidGeometry;
   const roiIdsAreUnique = new Set(rois.map((roi) => roi.id)).size === rois.length &&
     rois.every((roi) => Boolean(roi.id?.trim()));
   const roisWithinDetectionZone = detectionZoneValid && rois.every((roi) => {
@@ -71,10 +80,10 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
 
   return [
     {
-      label: 'Alignment',
-      valid: true,
-      detail: 'Not required in Simple ROI mode',
-      error: '',
+      label: 'Reference anchors',
+      valid: anchorsValid,
+      detail: `${anchors.length} configured · ${anchors.length >= 3 ? 'minimum met' : 'at least 3 required'}${!anchorIdsAreUnique ? ' · duplicate IDs' : ''}${!anchorsHaveValidGeometry ? ' · invalid coordinates or search settings' : ''}`,
+      error: 'Configure at least 3 valid, uniquely identified anchors. Every configured anchor must be detectable before inspection can pass.',
     },
     {
       label: 'Rectangular ROIs',
