@@ -491,7 +491,17 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     if (saveError) setSaveError(null);
   }, [editedRevision]);
 
-    // Save changes to database
+    const readImageDimensions = (src: string): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
+    if (!src.trim()) return reject(new Error('Master image is missing.'));
+    const image = new Image();
+    image.onload = () => image.naturalWidth > 0 && image.naturalHeight > 0
+      ? resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      : reject(new Error('Master image dimensions are invalid.'));
+    image.onerror = () => reject(new Error('Master image could not be loaded. Please upload the original image again.'));
+    image.src = src;
+  });
+
+  // Save changes to database
   const handleSave = async () => {
     setSaveError(null);
 
@@ -506,10 +516,20 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       return;
     }
 
+    let actualMasterDimensions: { width: number; height: number };
+    try {
+      actualMasterDimensions = await readImageDimensions(editedRevision.masterImageUrl);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Master image could not be validated.');
+      return;
+    }
+
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
-      anchors: [],
+      anchors: editedRevision.anchors,
+      masterWidth: actualMasterDimensions.width,
+      masterHeight: actualMasterDimensions.height,
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
