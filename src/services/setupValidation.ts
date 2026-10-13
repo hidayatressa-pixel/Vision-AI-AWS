@@ -73,8 +73,9 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
-  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 &&
-    references.every((reference) => Boolean(reference.imageUrl?.trim()));
+  const uploadedReferences = references.filter((reference) => Boolean(reference.imageUrl?.trim()));
+  const allReferencesUploaded = uploadedReferences.some((reference) => (reference.kind || 'OK') === 'OK') &&
+    uploadedReferences.some((reference) => reference.kind === 'NG');
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
