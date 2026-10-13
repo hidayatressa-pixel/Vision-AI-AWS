@@ -91,7 +91,7 @@ export const StatusDisplay: React.FC<StatusDisplayProps> = ({
             </div>
           </div>
           <div className="text-right hidden sm:block">
-            <div className="text-xs uppercase tracking-widest text-red-300 font-mono">Inspection Points</div>
+            <div className="text-xs uppercase tracking-widest text-red-300 font-mono">Points Passed</div>
             <div className="text-2xl font-mono font-bold text-white">
               {currentResult?.detectedCount || 0} / {currentResult?.expectedCount || expectedCount}
             </div>
