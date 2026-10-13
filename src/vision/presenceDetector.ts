@@ -121,6 +121,48 @@ export class PresenceDetector {
     return { detected, score: Math.min(100, Math.round(strongestRatio * 100)) };
   }
 
+  private calculateLocalMotion(
+    current: GrayscaleImage,
+    previous: GrayscaleImage | null,
+    zone: Box2D
+  ): number {
+    if (!previous || previous.width !== current.width || previous.height !== current.height) return 0;
+    const x0 = Math.max(0, Math.floor(zone.x * current.width));
+    const y0 = Math.max(0, Math.floor(zone.y * current.height));
+    const x1 = Math.min(current.width, Math.ceil((zone.x + zone.width) * current.width));
+    const y1 = Math.min(current.height, Math.ceil((zone.y + zone.height) * current.height));
+    const tileWidth = Math.max(1, Math.ceil((x1 - x0) / 16));
+    const tileHeight = Math.max(1, Math.ceil((y1 - y0) / 16));
+    let strongestMotion = 0;
+
+    for (let ty = y0; ty < y1; ty += tileHeight) {
+      for (let tx = x0; tx < x1; tx += tileWidth) {
+        const ex = Math.min(x1, tx + tileWidth);
+        const ey = Math.min(y1, ty + tileHeight);
+        let sampled = 0;
+        let changed = 0;
+        let magnitude = 0;
+        for (let y = ty; y < ey; y += 2) {
+          const row = y * current.width;
+          for (let x = tx; x < ex; x += 2) {
+            const delta = Math.abs(current.data[row + x] - previous.data[row + x]);
+            sampled++;
+            if (delta >= 18) {
+              changed++;
+              magnitude += delta;
+            }
+          }
+        }
+        if (sampled === 0 || changed === 0) continue;
+        const changedRatio = changed / sampled;
+        if (changedRatio >= 0.015) {
+          strongestMotion = Math.max(strongestMotion, magnitude / changed);
+        }
+      }
+    }
+    return strongestMotion;
+  }
+
   public processFrame(
     currentFrame: GrayscaleImage,
     detectionZone: Box2D,
@@ -132,7 +174,9 @@ export class PresenceDetector {
     const rw = detectionZone.width * currentFrame.width;
     const rh = detectionZone.height * currentFrame.height;
     const stats = getRegionStats(currentFrame, rx, ry, rw, rh);
-    const motion = calculateMotionDelta(currentFrame, this.prevFrame, detectionZone);
+    const globalMotion = calculateMotionDelta(currentFrame, this.prevFrame, detectionZone);
+    const localMotion = this.calculateLocalMotion(currentFrame, this.prevFrame, detectionZone);
+    const motion = Math.max(globalMotion, localMotion);
     this.prevFrame = currentFrame;
 
     let diff = 0;
