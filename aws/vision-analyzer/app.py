@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 import os
 import time
@@ -204,7 +205,7 @@ def lambda_handler(event, context):
             "error": "Image payload exceeds the configured size limit",
             "max_image_bytes": MAX_IMAGE_BYTES,
         })
-    except (ValueError, KeyError, json.JSONDecodeError):
+    except (ValueError, KeyError, json.JSONDecodeError, binascii.Error, UnicodeDecodeError):
         return _response(400, {
             "error": "Invalid image request. Provide a valid encoded image in image_base64.",
             "opencv_version": cv2.__version__,
