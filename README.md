@@ -81,15 +81,22 @@ Deployment creates AWS resources and may incur charges. No live endpoint or end-
 
 The `aws-opencv5` GitHub Actions job installs dependencies, runs the API analyzer tests, runs the mocked S3 event test, builds the Lambda container, and verifies OpenCV 5 inside that container. CI does not deploy AWS resources.
 
+## Security and limitations
+
+- The API currently exposes demonstration routes without an application-level authorizer. Do not expose configuration/session write routes to untrusted users until an authentication strategy compatible with the production frontend is implemented and tested. CORS is not authentication.
+- The API's analysis output is a set of image-processing measurements and circle candidates; it is not a validated production OK/NG decision.
+- S3 evidence objects are private and encrypted at rest by the SAM template. Verify least-privilege IAM and review cost/retention settings before deployment.
+- Never commit AWS credentials, access tokens, production images, or sensitive customer data. Rotate any credential found in Git history.
+
 ## Evidence status
 
 - [x] OpenCV 5 dependency and container runtime verification in CI
 - [x] Meaningful image-analysis pipeline
 - [x] AWS SAM infrastructure definition
-- [x] API Gateway request-path tests
+- [x] API Gateway request-path tests, including malformed Base64, empty body, and size-limit cases
 - [x] Mocked S3 event processing and JSON result tests
 - [x] Lambda container build in CI
-- [ ] Live AWS deployment evidence
+- [ ] API authentication/authorization validated for production use\n- [ ] Live AWS deployment evidence
 - [ ] End-to-end request and S3 result evidence from a deployed stack
 - [ ] Final demonstration recording and submission form
 
