@@ -73,3 +73,46 @@ def test_api_does_not_leak_internal_exception_details(monkeypatch):
     response = lambda_handler(event, None)
     assert response["statusCode"] == 500
     assert "private infrastructure detail" not in response["body"]
+
+
+
+def test_malformed_base64_returns_client_error():
+    response = lambda_handler(
+        {"path": "/analyze", "body": json.dumps({"image_base64": "not valid base64!"})},
+        None,
+    )
+    assert response["statusCode"] == 400
+    assert json.loads(response["body"])["error"]
+
+
+def test_empty_json_body_returns_client_error():
+    response = lambda_handler({"path": "/analyze", "body": ""}, None)
+    assert response["statusCode"] == 400
+
+
+def test_image_size_limit_returns_413(monkeypatch):
+    import app
+
+    monkeypatch.setattr(app, "MAX_IMAGE_BYTES", 8)
+    response = lambda_handler(
+        {"path": "/analyze", "body": json.dumps({"image_base64": base64.b64encode(b"x" * 9).decode()})},
+        None,
+    )
+    assert response["statusCode"] == 413
+    assert json.loads(response["body"])["max_image_bytes"] == 8
+
+
+def test_config_requires_expected_action():
+    response = lambda_handler(
+        {"path": "/config", "body": json.dumps({"action": "UNKNOWN", "configuration": {}})},
+        None,
+    )
+    assert response["statusCode"] == 400
+
+
+def test_session_rejects_invalid_action():
+    response = lambda_handler(
+        {"path": "/session", "body": json.dumps({"action": "DELETE_SESSION", "context": {}})},
+        None,
+    )
+    assert response["statusCode"] == 400
