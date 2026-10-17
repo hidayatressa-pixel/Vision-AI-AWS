@@ -33,9 +33,18 @@ export class RuleEngine {
     const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
     const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
     const ngReferences = references.filter((reference) => reference.kind === 'NG');
+    const anchors = revision.anchors || [];
+    const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length && anchors.every((anchor) => Boolean(anchor.id?.trim()));
+    const anchorsValid = anchors.length >= 3 && anchorIdsUnique && anchors.every((anchor) =>
+      Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
+      Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
+      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
+      Number.isFinite(anchor.patchRadius) && anchor.patchRadius >= 4
+    );
     const invalidConfiguration =
-      revision.masterWidth <= 0 ||
-      revision.masterHeight <= 0 ||
+      !anchorsValid ||
+      !Number.isInteger(revision.masterWidth) || revision.masterWidth <= 0 ||
+      !Number.isInteger(revision.masterHeight) || revision.masterHeight <= 0 ||
       !revision.masterImageUrl ||
       expectedCount === 0 ||
       okReferences.length < 1 ||
@@ -43,13 +52,15 @@ export class RuleEngine {
     if (invalidConfiguration) {
       const details = [
         !revision.masterImageUrl ? 'master image missing' : '',
+        !Number.isInteger(revision.masterWidth) || revision.masterWidth <= 0 || !Number.isInteger(revision.masterHeight) || revision.masterHeight <= 0 ? 'invalid master image dimensions' : '',
+        !anchorsValid ? `anchor configuration invalid (${anchors.length} configured; need at least 3 valid unique anchors)` : '',
         expectedCount === 0 ? 'no rectangular ROI configured' : '',
-        `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)`,
+        okReferences.length < 1 || ngReferences.length < 1 ? `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)` : '',
       ].filter(Boolean).join('; ');
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
         message: 'Multi-reference ROI configuration is incomplete: ' + details,
-        expected: 'At least one rectangle ROI and at least one uploaded OK plus one uploaded NG reference',
+        expected: 'Valid master dimensions, at least 3 unique anchors, at least one ROI, and uploaded OK plus NG references',
         actual: 'Configuration incomplete',
       });
       return {

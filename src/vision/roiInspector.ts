@@ -7,6 +7,7 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
+import { alignmentEngine } from './alignmentEngine';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -142,10 +143,7 @@ export class ROIInspector {
     referenceImages: ReferenceImage[] = [],
     colorFrame: ImageData | null = null
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
-    void alignment;
     void tolerance;
-    void masterWidth;
-    void masterHeight;
 
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl));
     const okReferences = usableReferences.filter((reference) => (reference.kind || 'OK') === 'OK');
@@ -154,12 +152,27 @@ export class ROIInspector {
     let matchedRoiCount = 0;
 
     for (const roi of rois) {
-      const current = currentRoiPatch(frame, colorFrame, roi);
+      const width = roi.width ?? roi.radius * 2;
+      const height = roi.height ?? roi.radius * 2;
+      const baseScale = masterWidth > 0 && masterHeight > 0
+        ? Math.min(frame.width / masterWidth, frame.height / masterHeight)
+        : 0;
+      const transformedCenter = alignmentEngine.transformMasterPoint(
+        { x: roi.x, y: roi.y }, frame.width, frame.height, alignment, masterWidth, masterHeight
+      );
+      const transformedRoi: InspectionROI = {
+        ...roi,
+        x: transformedCenter.x / frame.width,
+        y: transformedCenter.y / frame.height,
+        width: (width * masterWidth * baseScale * alignment.scale) / frame.width,
+        height: (height * masterHeight * baseScale * alignment.scale) / frame.height,
+      };
+      const current = alignment.success ? currentRoiPatch(frame, colorFrame, transformedRoi) : null;
       if (!current || okReferences.length === 0 || ngReferences.length === 0) {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: { x: transformedRoi.x, y: transformedRoi.y },
           actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
           isWithinTolerance: false, confidence: 0, isPresent: false,
           evidence: 'UNCERTAIN', status: 'WARNING',
@@ -184,7 +197,7 @@ export class ROIInspector {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: { x: transformedRoi.x, y: transformedRoi.y },
           actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
           isWithinTolerance: false, confidence: 0, isPresent: false,
           evidence: 'UNCERTAIN', status: 'WARNING',
@@ -203,8 +216,8 @@ export class ROIInspector {
       results.push({
         roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
         masterPosition: { x: roi.x, y: roi.y },
-        expectedTransformedPosition: { x: roi.x, y: roi.y },
-        actualDetectedPosition: { x: roi.x, y: roi.y },
+        expectedTransformedPosition: { x: transformedRoi.x, y: transformedRoi.y },
+        actualDetectedPosition: { x: transformedRoi.x, y: transformedRoi.y },
         positionOffsetPx: 0, positionOffsetMm: 0,
         isWithinTolerance: passed,
         confidence: Math.round(bestSimilarity * 100) / 100,

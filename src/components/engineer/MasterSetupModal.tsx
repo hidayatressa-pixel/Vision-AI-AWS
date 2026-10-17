@@ -123,6 +123,25 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       ctx.fillStyle = '#06b6d4';
       ctx.fillText('DETECTION ZONE', dz.x * w + 8, dz.y * h + 16);
 
+      // Blue crosshairs are the master fiducials used by live-camera alignment.
+      for (const anchor of editedRevision.anchors || []) {
+        const ax = anchor.x * w;
+        const ay = anchor.y * h;
+        const selected = selectedItemType === 'ANCHOR' && selectedId === anchor.id;
+        ctx.strokeStyle = selected ? '#fbbf24' : '#38bdf8';
+        ctx.fillStyle = selected ? '#fbbf24' : '#38bdf8';
+        ctx.lineWidth = selected ? 3 : 2;
+        ctx.beginPath();
+        ctx.arc(ax, ay, selected ? 10 : 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ax - 13, ay); ctx.lineTo(ax + 13, ay);
+        ctx.moveTo(ax, ay - 13); ctx.lineTo(ax, ay + 13);
+        ctx.stroke();
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText(anchor.name || anchor.id, ax + 12, ay - 10);
+      }
+
       for (const roi of editedRevision.inspectionROIs) {
         const x = roi.x * w;
         const y = roi.y * h;
@@ -218,6 +237,21 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     canvas.setPointerCapture(e.pointerId);
     activePointerIdRef.current = e.pointerId;
 
+    // Anchor handles take priority over ROI boxes so engineers can calibrate
+    // the actual fiducials on the original master image.
+    for (const anchor of [...(editedRevision.anchors || [])].reverse()) {
+      const ax = anchor.x * canvas.width;
+      const ay = anchor.y * canvas.height;
+      if (Math.hypot(clickX - ax, clickY - ay) <= 16) {
+        setSelectedItemType('ANCHOR');
+        setSelectedId(anchor.id);
+        pointerModeRef.current = 'MOVE';
+        pointerStartRef.current = { x: anchor.x, y: anchor.y, width: 0, height: 0, pointerX: clickX, pointerY: clickY };
+        isDraggingRef.current = true;
+        return;
+      }
+    }
+
     for (const roi of [...editedRevision.inspectionROIs].reverse()) {
       const rw = (roi.width ?? roi.radius * 2) * canvas.width;
       const rh = (roi.height ?? roi.radius * 2) * canvas.height;
@@ -281,6 +315,18 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     if (!isDraggingRef.current || !start || !selectedId) return;
     const dx = (clickX - start.pointerX) / canvas.width;
     const dy = (clickY - start.pointerY) / canvas.height;
+
+    if (selectedItemType === 'ANCHOR') {
+      setEditedRevision((prev) => ({
+        ...prev,
+        anchors: (prev.anchors || []).map((anchor) => anchor.id === selectedId ? {
+          ...anchor,
+          x: Math.max(0, Math.min(1, start.x + dx)),
+          y: Math.max(0, Math.min(1, start.y + dy)),
+        } : anchor),
+      }));
+      return;
+    }
 
     setEditedRevision((prev) => ({
       ...prev,
@@ -491,7 +537,17 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     if (saveError) setSaveError(null);
   }, [editedRevision]);
 
-    // Save changes to database
+    const readImageDimensions = (src: string): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
+    if (!src.trim()) return reject(new Error('Image is missing.'));
+    const image = new Image();
+    image.onload = () => image.naturalWidth > 0 && image.naturalHeight > 0
+      ? resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      : reject(new Error('Master image dimensions are invalid.'));
+    image.onerror = () => reject(new Error('An uploaded master/reference image could not be loaded. Please upload the original image again.'));
+    image.src = src;
+  });
+
+  // Save changes to database
   const handleSave = async () => {
     setSaveError(null);
 
@@ -506,14 +562,26 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       return;
     }
 
+    let actualMasterDimensions: { width: number; height: number };
+    try {
+      actualMasterDimensions = await readImageDimensions(editedRevision.masterImageUrl);
+      const uploadedReferences = (editedRevision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl?.trim()));
+      await Promise.all(uploadedReferences.map((reference) => readImageDimensions(reference.imageUrl)));
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Master/reference images could not be validated.');
+      return;
+    }
+
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
-      anchors: [],
+      anchors: editedRevision.anchors,
+      masterWidth: actualMasterDimensions.width,
+      masterHeight: actualMasterDimensions.height,
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
-        objectType: 'component',
+        objectType: roi.objectType || 'component',
         width: roi.width ?? roi.radius * 2,
         height: roi.height ?? roi.radius * 2,
       })),
@@ -820,7 +888,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="text-xs font-mono uppercase tracking-wider text-slate-400">Rectangular Inspection Areas</span>
-                    <div className="text-[10px] text-slate-500 mt-1">Add, move, resize, and assign an OK reference.</div>
+                    <div className="text-[10px] text-slate-500 mt-1">Move/resize inspection areas. Drag blue anchor crosshairs onto stable landmarks in the original master photo.</div>
                   </div>
                   <button
                     type="button"
