@@ -1,0 +1,30 @@
+name: Vision AI SAM Build (No AWS CodeBuild)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sam-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: aws-actions/setup-sam@v2
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r aws/vision-analyzer/requirements.txt pytest
+      - name: Run analyzer tests
+        run: pytest -q aws/vision-analyzer/test_app.py tests/test_s3_path.py
+      - name: Validate SAM template
+        run: sam validate --template-file aws/vision-analyzer/template.yaml
+      - name: Build SAM application in container
+        run: sam build --template-file aws/vision-analyzer/template.yaml --use-container
+      - name: Confirm build output
+        run: test -f .aws-sam/build/template.yaml
