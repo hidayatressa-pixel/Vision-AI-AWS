@@ -10,6 +10,9 @@ jobs:
   sam-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+      SAM_CLI_TELEMETRY: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
