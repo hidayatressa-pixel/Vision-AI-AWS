@@ -26,7 +26,7 @@ import { PresenceDetector } from '../vision/presenceDetector';
 import { roiInspector } from '../vision/roiInspector';
 import { ruleEngine } from '../vision/ruleEngine';
 import { preprocessInspectionFrame } from '../vision/opencvEngine';
-import { markInspectionLifecycleComplete, sendInspectionResult, sendStandbyEvent } from '../services/visionCloud';
+import { analyzeFrameOnAws, markInspectionLifecycleComplete, sendInspectionResult, sendStandbyEvent } from '../services/visionCloud';
 
 export interface UseInspectionPipelineProps {
   activeMaster: MasterProduct | null;
@@ -493,16 +493,39 @@ export function useInspectionPipeline({
         // Thumbnail generation failure is non-fatal
       }
 
+      // AWS performs an independent ROI/reference comparison before the PLC result is sent.
+      // A cloud timeout, missing reference, or disagreement fails closed; it cannot produce OK.
+      let resultJudgement: JudgementResult = evaluation.judgement;
+      let resultReason = evaluation.primaryReason;
+      const browserJudgement: JudgementResult = evaluation.judgement;
+      let awsAnalysis: Record<string, unknown> | null = null;
+      let awsAnalysisError: string | undefined;
+      try {
+        awsAnalysis = await analyzeFrameOnAws(frameData, revision);
+        const cloudJudgement = String(awsAnalysis.judgement) as JudgementResult;
+        if (cloudJudgement !== 'OK' && cloudJudgement !== 'NG') {
+          resultJudgement = 'INVALID';
+          resultReason = `AWS OpenCV could not verify the product: ${String(awsAnalysis.primary_reason || 'insufficient reference evidence')}`;
+        } else if (cloudJudgement !== browserJudgement || (browserJudgement !== 'OK' && browserJudgement !== 'NG')) {
+          resultJudgement = 'INVALID';
+          resultReason = `Browser/AWS judgement disagreement (browser ${browserJudgement}, AWS ${cloudJudgement}); inspection blocked`;
+        } else {
+          resultJudgement = cloudJudgement;
+          resultReason = `AWS OpenCV ${cloudJudgement} confirmed by browser cross-check: ${String(awsAnalysis.primary_reason || evaluation.primaryReason)}`;
+        }
+      } catch (error) {
+        awsAnalysisError = error instanceof Error ? error.message : String(error);
+        resultJudgement = 'ERROR';
+        resultReason = `AWS OpenCV decision not confirmed; fail-safe block: ${awsAnalysisError}`;
+        plcService.logTimelineEvent('AWS_DECISION_FAILED', 'INTERLOCK', resultReason);
+      }
+
       const totalInspectionMs = Math.round(performance.now() - cycleStart);
       const totalCycleMs = Math.round(partDetectTime + stabTime + totalInspectionMs);
 
-      // 5. Processing time is a deterministic budget, not a new product state.
-      // A vision cycle that takes longer than the preferred budget must still
-      // produce a product judgement; only infrastructure/runtime failures are ERROR.
-      let resultJudgement: JudgementResult = evaluation.judgement;
-      let resultReason = evaluation.primaryReason;
+      // Processing budget is diagnostic only. It never upgrades INVALID/ERROR to OK.
       if (totalInspectionMs > plcService.getConfig().maxInspectionTimeoutMs) {
-        resultReason = `${evaluation.primaryReason} — inspection exceeded the preferred processing budget`;
+        resultReason = `${resultReason} — inspection exceeded the preferred processing budget`;
         plcService.logTimelineEvent('INSPECTION_BUDGET_EXCEEDED', 'VISION', resultReason);
       }
 
@@ -602,23 +625,22 @@ export function useInspectionPipeline({
         detectedCount: evaluation.detectedCount,
         expectedCount: evaluation.expectedCount,
         reason: resultReason,
-        frame: frameData,
-      }).then(({ analysis, evidenceKey }) => {
-        const version = String(analysis.opencv_version || 'unknown');
-        const candidates = Array.isArray(analysis.circle_candidates) ? analysis.circle_candidates.length : 0;
+        browserJudgement,
+        browserReason: evaluation.primaryReason,
+        opencvAnalysis: awsAnalysis,
+        analysisError: awsAnalysisError,
+      }).then(({ evidenceKey }) => {
         plcService.logTimelineEvent(
-          'AWS_EVIDENCE_CONFIRMED',
-          'VISION',
-          `AWS OpenCV ${version} analyzed frame; ${candidates} circle candidate(s); evidence stored at ${evidenceKey}. Product judgement source remains browser rule engine.`
+          awsAnalysis ? 'AWS_EVIDENCE_CONFIRMED' : 'AWS_FAILURE_RECORDED',
+          awsAnalysis ? 'VISION' : 'INTERLOCK',
+          awsAnalysis
+            ? `AWS OpenCV ${String(awsAnalysis.opencv_version)} decision ${String(awsAnalysis.judgement)}; evidence stored at ${evidenceKey}.`
+            : `AWS analysis failed and fail-safe ERROR was recorded at ${evidenceKey}.`
         );
       }).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[AWS inspection evidence]', error);
-        plcService.logTimelineEvent(
-          'AWS_EVIDENCE_FAILED',
-          'VISION',
-          `AWS analysis/evidence was not confirmed: ${message}`
-        );
+        plcService.logTimelineEvent('AWS_EVIDENCE_FAILED', 'INTERLOCK', `AWS evidence storage was not confirmed: ${message}`);
       });
       markInspectionLifecycleComplete(resultJudgement);
 
