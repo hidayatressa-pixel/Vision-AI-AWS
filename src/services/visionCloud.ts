@@ -1,5 +1,16 @@
-const VISION_API_URL =
-  'https://tfu0e7nbj0.execute-api.ap-southeast-2.amazonaws.com/default/vision-ai-backend';
+const CONFIG_API_URL = String(import.meta.env.VITE_VISION_CONFIG_API_URL || '').trim();
+
+function endpointFor(path: 'analyze' | 'inspection-result'): string {
+  if (!CONFIG_API_URL) {
+    throw new Error('AWS API is not configured. Set VITE_VISION_CONFIG_API_URL to the deployed /Prod/config endpoint.');
+  }
+  const url = new URL(CONFIG_API_URL);
+  if (!url.pathname.endsWith('/config')) {
+    throw new Error('VITE_VISION_CONFIG_API_URL must point to the /config route of the same Vision Analyzer API.');
+  }
+  url.pathname = url.pathname.slice(0, -'config'.length) + path;
+  return url.toString();
+}
 
 export interface VisionCloudEvent {
   status: 'OK' | 'NG' | 'INVALID' | 'ERROR' | 'STANDBY';
@@ -23,24 +34,21 @@ function clampConfidence(value: number): number {
 }
 
 export async function sendVisionEvent(event: VisionCloudEvent): Promise<void> {
-  try {
-    const response = await fetch(VISION_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(event),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Vision API returned HTTP ${response.status}`);
-    }
-  } catch (error) {
-    console.error('[VisionCloud] Event send failed:', error);
+  const response = await postJsonWithTimeout(endpointFor('inspection-result'), {
+    action: 'STORE_INSPECTION_RESULT',
+    decisionSource: 'browser_rule_engine',
+    event,
+  });
+  if (!response.ok) {
+    throw new Error(`AWS inspection event rejected (HTTP ${response.status}).`);
+  }
+  const result = await response.json().catch(() => null) as { accepted?: boolean; success?: boolean; message?: string } | null;
+  if (!result || result.accepted !== true || result.success !== true) {
+    throw new Error(result?.message || 'AWS did not confirm inspection event storage.');
   }
 }
 
-export function sendInspectionResult(params: {
+export async function sendInspectionResult(params: {
   status: 'OK' | 'NG' | 'INVALID' | 'ERROR';
   alignmentConfidence: number;
   roiConfidences: number[];
@@ -51,16 +59,47 @@ export function sendInspectionResult(params: {
   detectedCount: number;
   expectedCount: number;
   reason: string;
-}): void {
+  frame: ImageData;
+}): Promise<{ analysis: Record<string, unknown>; evidenceKey: string }> {
+  const canvas = document.createElement('canvas');
+  const scale = Math.min(1, 1280 / params.frame.width, 720 / params.frame.height);
+  canvas.width = Math.max(1, Math.round(params.frame.width * scale));
+  canvas.height = Math.max(1, Math.round(params.frame.height * scale));
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Could not prepare the captured frame for AWS analysis.');
+  const source = document.createElement('canvas');
+  source.width = params.frame.width;
+  source.height = params.frame.height;
+  const sourceContext = source.getContext('2d');
+  if (!sourceContext) throw new Error('Could not read the captured frame for AWS analysis.');
+  sourceContext.putImageData(params.frame, 0, 0);
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+  const imageBase64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+  if (!imageBase64) throw new Error('Captured frame encoding returned empty data.');
+
+  // AWS OpenCV returns measurements/candidates. These are evidence only,
+  // not an independently validated product OK/NG decision.
+  const analysisResponse = await postJsonWithTimeout(endpointFor('analyze'), {
+    image_base64: imageBase64,
+  });
+  if (!analysisResponse.ok) {
+    throw new Error(`AWS OpenCV analysis failed (HTTP ${analysisResponse.status}).`);
+  }
+  const analysis = await analysisResponse.json().catch(() => null) as Record<string, unknown> | null;
+  if (!analysis || typeof analysis.opencv_version !== 'string' ||
+      typeof analysis.width !== 'number' || typeof analysis.height !== 'number' ||
+      !Array.isArray(analysis.circle_candidates)) {
+    throw new Error('AWS OpenCV response is missing required analysis fields.');
+  }
+
   const roiValues = params.roiConfidences.filter(Number.isFinite);
   const confidenceValues = [
     clampConfidence(params.alignmentConfidence),
     ...roiValues.map(clampConfidence),
   ];
-  const confidence =
-    confidenceValues.length > 0
-      ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
-      : 0;
+  const confidence = confidenceValues.reduce((sum, value) => sum + value, 0) /
+    Math.max(1, confidenceValues.length);
 
   const event: VisionCloudEvent = {
     status: params.status,
@@ -75,8 +114,22 @@ export function sendInspectionResult(params: {
     expectedCount: params.expectedCount,
     reason: params.reason,
   };
-
-  void sendVisionEvent(event);
+  const storeResponse = await postJsonWithTimeout(endpointFor('inspection-result'), {
+    action: 'STORE_INSPECTION_RESULT',
+    decisionSource: 'browser_rule_engine',
+    event,
+    opencvAnalysis: analysis,
+  });
+  if (!storeResponse.ok) {
+    throw new Error(`AWS evidence storage failed (HTTP ${storeResponse.status}).`);
+  }
+  const stored = await storeResponse.json().catch(() => null) as {
+    accepted?: boolean; success?: boolean; key?: string; message?: string;
+  } | null;
+  if (!stored || stored.accepted !== true || stored.success !== true || !stored.key) {
+    throw new Error(stored?.message || 'AWS did not confirm inspection evidence storage.');
+  }
+  return { analysis, evidenceKey: stored.key };
 }
 
 export function sendStandbyEvent(jig: string): void {
@@ -90,6 +143,8 @@ export function sendStandbyEvent(jig: string): void {
     mode: 'CONTINUOUS',
     jig,
     timestamp: new Date().toISOString(),
+  }).catch((error) => {
+    console.error('[VisionCloud] Standby event was not confirmed:', error);
   });
 }
 
@@ -174,7 +229,7 @@ export async function saveConfigurationToAws(configuration: {
   revision: unknown;
   savedAt: string;
 }): Promise<void> {
-  const configUrl = String(import.meta.env.VITE_VISION_CONFIG_API_URL || '').trim();
+  const configUrl = CONFIG_API_URL;
   if (!configUrl) {
     throw new Error(
       'AWS configuration storage is not configured. Set VITE_VISION_CONFIG_API_URL to the deployed configuration API endpoint.'
