@@ -190,7 +190,7 @@ export async function saveConfigurationToAws(configuration: {
   }
 
   const result = await response.json().catch(() => null) as { saved?: boolean; success?: boolean; message?: string } | null;
-  if (result && (result.saved === false || result.success === false)) {
-    throw new Error(result.message || 'AWS configuration API did not confirm the save.');
+  if (!result || result.saved !== true || result.success !== true) {
+    throw new Error(result?.message || 'AWS configuration API did not confirm the save.');
   }
 }
