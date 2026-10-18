@@ -591,7 +591,7 @@ export function useInspectionPipeline({
       // 7. Send the completed inspection event to AWS without blocking the
       // local vision/PLC lifecycle. OpenCV remains local; AWS receives the event.
       const cloudIdentity = getVisionRuntimeIdentity();
-      sendInspectionResult({
+      void sendInspectionResult({
         status: resultJudgement,
         alignmentConfidence: alignment.confidence,
         roiConfidences: roiResults.map((roi) => roi.confidence),
@@ -602,6 +602,23 @@ export function useInspectionPipeline({
         detectedCount: evaluation.detectedCount,
         expectedCount: evaluation.expectedCount,
         reason: resultReason,
+        frame: frameData,
+      }).then(({ analysis, evidenceKey }) => {
+        const version = String(analysis.opencv_version || 'unknown');
+        const candidates = Array.isArray(analysis.circle_candidates) ? analysis.circle_candidates.length : 0;
+        plcService.logTimelineEvent(
+          'AWS_EVIDENCE_CONFIRMED',
+          'VISION',
+          `AWS OpenCV ${version} analyzed frame; ${candidates} circle candidate(s); evidence stored at ${evidenceKey}. Product judgement source remains browser rule engine.`
+        );
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[AWS inspection evidence]', error);
+        plcService.logTimelineEvent(
+          'AWS_EVIDENCE_FAILED',
+          'VISION',
+          `AWS analysis/evidence was not confirmed: ${message}`
+        );
       });
       markInspectionLifecycleComplete(resultJudgement);
 
