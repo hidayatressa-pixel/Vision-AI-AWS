@@ -36,10 +36,13 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
   const currentMaster = masters.find((m) => m.id === selectedMasterId) || masters[0];
   const previewRevision = currentMaster?.revisions.find((r) => r.id === currentMaster.activeRevisionId) || currentMaster?.revisions[0];
-  const activeMasterChecks = activeRevision ? getMasterValidationChecks(activeRevision) : [];
-  const activeMasterReady = Boolean(activeRevision) && activeMasterChecks.every((check) => check.valid);
+  const previewRevisionChecks = previewRevision ? getMasterValidationChecks(previewRevision) : [];
+  const previewRevisionReady = Boolean(previewRevision) && previewRevisionChecks.every((check) => check.valid);
 
   const handleActivateRevision = async (master: MasterProduct, revisionId: string) => {
+    const revisionToActivate = master.revisions.find((revision) => revision.id === revisionId);
+    if (!revisionToActivate || !getMasterValidationChecks(revisionToActivate).every((check) => check.valid)) return;
+
     const updated: MasterProduct = {
       ...master,
       activeRevisionId: revisionId,
@@ -182,7 +185,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                   <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-400">Master Image</div>
                   <div className="mt-1 text-sm font-bold text-white">Reference for vision alignment & inspection</div>
                   <p className="mt-2 text-xs leading-5 text-slate-400">
-                    The master image defines the approved layout and alignment reference. Anchors define alignment; screw ROIs define the eight required inspection locations.
+                    The master image defines the approved layout and alignment reference. The configured inspection areas define the required inspection locations for this product.
                   </p>
                   {previewRevision && (
                     <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-mono">
@@ -190,7 +193,10 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                         {previewRevision.revisionCode}
                       </span>
                       <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
-                        {previewRevision.expectedObjectCount} SCREWS
+                        {previewRevision.inspectionROIs.length} INSPECTION POINTS
+                      </span>
+                      <span className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-sky-300">
+                        {previewRevision.anchors?.length ?? 0} ANCHORS
                       </span>
                       <span className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
                         {previewRevision.masterWidth}×{previewRevision.masterHeight}
@@ -230,14 +236,14 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
               <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-mono uppercase tracking-wider text-slate-400">Current master configuration</span>
-                  <span className={activeMasterReady ? 'text-emerald-300 text-[10px] font-black' : 'text-rose-300 text-[10px] font-black'}>
-                    {activeMasterReady ? 'VALID' : 'INVALID'}
+                  <span className={previewRevisionReady ? 'text-emerald-300 text-[10px] font-black' : 'text-rose-300 text-[10px] font-black'}>
+                    {previewRevisionReady ? 'VALID' : 'INVALID'}
                   </span>
                 </div>
                 <div className="mt-2 text-[10px] font-mono text-slate-500">
-                  {activeMasterChecks.filter((check) => !check.valid).length === 0
-                    ? 'All validation checks are currently PASS.'
-                    : activeMasterChecks.filter((check) => !check.valid).length + ' validation item(s) will be shown in the Validation Center.'}
+                  {previewRevisionChecks.filter((check) => !check.valid).length === 0
+                    ? 'Selected product revision passes all setup checks.'
+                    : previewRevisionChecks.filter((check) => !check.valid).length + ' setup item(s) must be corrected before activation.'}
                 </div>
               </div>
 
@@ -323,6 +329,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                           {!isActiveRev && (
                             <button
                               onClick={() => handleActivateRevision(currentMaster, rev.id)}
+                              disabled={!getMasterValidationChecks(rev).every((check) => check.valid)}
+                              title={!getMasterValidationChecks(rev).every((check) => check.valid) ? 'Complete master, anchors, and real OK/NG references before activation' : 'Activate this validated revision'}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -335,8 +343,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                       {/* Specs Badge Strip */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-800/80 text-xs font-mono">
                         <div>
-                          <span className="text-slate-500 text-[11px]">Screws Required:</span>
-                          <div className="font-bold text-cyan-300">{rev.expectedObjectCount} pcs</div>
+                          <span className="text-slate-500 text-[11px]">Inspection Points:</span>
+                          <div className="font-bold text-cyan-300">{rev.inspectionROIs.length} points</div>
                         </div>
                         <div>
                           <span className="text-slate-500 text-[11px]">Tolerance:</span>

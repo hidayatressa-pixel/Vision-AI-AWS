@@ -24,6 +24,8 @@ import { PLCHandshakeState, PLCLiveSignals } from '../types/plc';
 import { getRegionStats, toGrayscale } from '../vision/imageUtils';
 import { PresenceDetector } from '../vision/presenceDetector';
 import { roiInspector } from '../vision/roiInspector';
+import { alignmentEngine } from '../vision/alignmentEngine';
+import { getMasterValidationChecks } from '../services/setupValidation';
 import { ruleEngine } from '../vision/ruleEngine';
 import { preprocessInspectionFrame } from '../vision/opencvEngine';
 import { markInspectionLifecycleComplete, sendInspectionResult, sendStandbyEvent } from '../services/visionCloud';
@@ -165,6 +167,12 @@ export function useInspectionPipeline({
   // the operator explicitly starts the cycle and the camera is already live.
   const startSession = useCallback(async () => {
     if (sessionActive || !activeRevisionRef.current) return false;
+    const setupChecks = getMasterValidationChecks(activeRevisionRef.current);
+    if (!setupChecks.every((check) => check.valid)) {
+      setState('INSPECTION_INVALID');
+      setCurrentResult(null);
+      return false;
+    }
 
     const samples: { mean: number; variance: number }[] = [];
     const revision = activeRevisionRef.current;
@@ -253,25 +261,21 @@ export function useInspectionPipeline({
         const gray = opencvFrame.gray;
 
         const alignStart = performance.now();
-        // Simple ROI MVP uses fixed normalized camera coordinates; no
-        // screw/fiducial alignment is required for this inspection mode.
-        const alignment: AlignmentResult = {
-          success: true,
-          translationX: 0,
-          translationY: 0,
-          rotationDeg: 0,
-          scale: 1,
-          confidence: 1,
-          matchedAnchorCount: 0,
-          totalAnchorCount: 0,
-          anchorPositions: [],
-        };
+        const alignment = alignmentEngine.calculateAlignment(
+          gray,
+          revision.masterWidth,
+          revision.masterHeight,
+          revision.anchors || [],
+          revision.tolerance
+        );
         const alignmentMs = performance.now() - alignStart;
 
         plcService.logTimelineEvent(
-          'ROI_COORDINATES_READY',
+          alignment.success ? 'ROI_COORDINATES_READY' : 'ALIGNMENT_FAILED',
           'VISION',
-          'Fixed-camera normalized coordinates active; fiducial alignment bypassed'
+          alignment.success
+            ? `Anchor alignment verified: ${alignment.matchedAnchorCount}/${alignment.totalAnchorCount} anchors`
+            : alignment.errorMessage || 'Reference anchor alignment failed'
         );
 
         let roiResults: ROIInspectionResult[] = [];
