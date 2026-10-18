@@ -199,6 +199,7 @@ def analyze_image(raw: bytes, inspection_config: dict | None = None) -> dict:
         if not isinstance(inspection_config, dict):
             raise ValueError("inspection_config must be a JSON object")
         result.update(_evaluate_configured_rois(image, inspection_config))
+    result["processing_ms"] = round((time.perf_counter() - started) * 1000, 3)
     return result
 
 
