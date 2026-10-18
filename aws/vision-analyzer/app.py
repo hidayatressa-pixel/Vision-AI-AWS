@@ -156,6 +156,43 @@ def lambda_handler(event, context):
             raise ValueError("Invalid request event")
 
         request_path = _request_path(event)
+        if request_path.endswith("/inspection-result") or request_path == "/inspection-result":
+            payload = _parse_json_body(event)
+            if payload.get("action") != "STORE_INSPECTION_RESULT":
+                raise ValueError("Unsupported inspection-result action")
+            inspection_event = payload.get("event")
+            if not isinstance(inspection_event, dict):
+                raise ValueError("Missing inspection event")
+            status = inspection_event.get("status")
+            if status not in ("OK", "NG", "INVALID", "ERROR", "STANDBY"):
+                raise ValueError("Invalid inspection status")
+            inspection_id = str(inspection_event.get("inspectionId") or "").strip()
+            if status != "STANDBY" and not inspection_id:
+                raise ValueError("Inspection ID is required for a completed result")
+            opencv_analysis = payload.get("opencvAnalysis")
+            if status in ("OK", "NG", "INVALID", "ERROR"):
+                if not isinstance(opencv_analysis, dict):
+                    raise ValueError("Completed inspection requires AWS OpenCV analysis evidence")
+                if not isinstance(opencv_analysis.get("opencv_version"), str):
+                    raise ValueError("OpenCV analysis version is missing")
+                if not isinstance(opencv_analysis.get("circle_candidates"), list):
+                    raise ValueError("OpenCV circle candidate list is missing")
+            document = {
+                "schema_version": 1,
+                "decision_source": str(payload.get("decisionSource") or "unspecified"),
+                "received_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "event": inspection_event,
+                "opencv_analysis": opencv_analysis,
+            }
+            identity = inspection_id or str(inspection_event.get("jig") or "station")
+            key = _store_json_document("inspection-results", document, identity)
+            return _response(200, {
+                "accepted": True,
+                "success": True,
+                "key": key,
+                "opencv_version": opencv_analysis.get("opencv_version") if isinstance(opencv_analysis, dict) else None,
+            })
+
         if request_path.endswith("/config") or request_path == "/config":
             payload = _parse_json_body(event)
             if payload.get("action") != "SAVE_CONFIGURATION":
