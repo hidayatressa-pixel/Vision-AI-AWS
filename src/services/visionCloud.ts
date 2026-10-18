@@ -1,3 +1,5 @@
+import type { MasterRevision } from '../types/master';
+
 const CONFIG_API_URL = String(import.meta.env.VITE_VISION_CONFIG_API_URL || '').trim();
 
 function endpointFor(path: 'analyze' | 'inspection-result'): string {
