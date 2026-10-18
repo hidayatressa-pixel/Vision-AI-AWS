@@ -196,3 +196,47 @@ def test_standby_event_can_be_stored_without_frame_analysis(monkeypatch):
     )
     assert response["statusCode"] == 200
     assert json.loads(response["body"])["accepted"] is True
+
+
+
+def _reference_patch_b64(image, encode_format=".png"):
+    ok, encoded = cv2.imencode(encode_format, image)
+    assert ok
+    return base64.b64encode(encoded.tobytes()).decode("ascii")
+
+
+def test_server_side_roi_judgement_matches_approved_ok_reference():
+    import app
+    raw = make_fixture()
+    image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+    # One ROI centered on a region containing the known circle. Use the same
+    # crop as its OK patch; the NG patch is a flat image with different structure.
+    x, y, w, h = 80 / 320, 80 / 240, 0.18, 0.18
+    crop = image[int((y - h / 2) * 240):int((y + h / 2) * 240),
+                 int((x - w / 2) * 320):int((x + w / 2) * 320)]
+    ok_patch = cv2.resize(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), (64, 64))
+    ng_patch = np.full((64, 64), 220, dtype=np.uint8)
+    config = {"rois": [{
+        "id": "roi-1", "name": "Circle", "x": x, "y": y, "width": w, "height": h,
+        "minConfidence": 0.75, "comparisonMode": "BALANCED",
+        "references": [
+            {"kind": "OK", "patch_base64": _reference_patch_b64(ok_patch)},
+            {"kind": "NG", "patch_base64": _reference_patch_b64(ng_patch)},
+        ],
+    }]}
+    result = app.analyze_image(raw, config)
+    assert result["judgement"] == "OK"
+    assert result["decision_source"] == "aws_opencv_roi_reference"
+    assert result["roi_results"][0]["status"] == "OK"
+
+
+def test_server_side_roi_without_both_reference_classes_is_invalid():
+    import app
+    raw = make_fixture()
+    config = {"rois": [{
+        "id": "roi-1", "name": "Circle", "x": 0.25, "y": 0.33,
+        "width": 0.18, "height": 0.18, "references": [],
+    }]}
+    result = app.analyze_image(raw, config)
+    assert result["judgement"] == "INVALID"
+    assert result["roi_results"][0]["status"] == "INVALID"
