@@ -116,3 +116,83 @@ def test_session_rejects_invalid_action():
         None,
     )
     assert response["statusCode"] == 400
+
+
+
+def test_inspection_result_requires_opencv_evidence():
+    response = lambda_handler(
+        {
+            "path": "/inspection-result",
+            "body": json.dumps({
+                "action": "STORE_INSPECTION_RESULT",
+                "decisionSource": "browser_rule_engine",
+                "event": {
+                    "status": "OK",
+                    "inspectionId": "INSP-TEST-001",
+                    "jig": "STATION-01",
+                },
+            }),
+        },
+        None,
+    )
+    assert response["statusCode"] == 400
+
+
+def test_inspection_result_stores_confirmed_opencv_evidence(monkeypatch):
+    import app
+
+    stored = {}
+    def fake_store(prefix, document, identity):
+        stored.update({"prefix": prefix, "document": document, "identity": identity})
+        return "inspection-results/INSP-TEST-002/result.json"
+
+    monkeypatch.setattr(app, "_store_json_document", fake_store)
+    response = lambda_handler(
+        {
+            "path": "/Prod/inspection-result",
+            "body": json.dumps({
+                "action": "STORE_INSPECTION_RESULT",
+                "decisionSource": "browser_rule_engine",
+                "event": {
+                    "status": "NG",
+                    "inspectionId": "INSP-TEST-002",
+                    "jig": "STATION-01",
+                    "productCode": "P-01",
+                    "revisionCode": "REV-01",
+                },
+                "opencvAnalysis": {
+                    "opencv_version": "5.0.0",
+                    "width": 320,
+                    "height": 240,
+                    "circle_candidates": [],
+                    "processing_ms": 2.0,
+                },
+            }),
+        },
+        None,
+    )
+    body = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert body["accepted"] is True
+    assert body["success"] is True
+    assert body["key"] == "inspection-results/INSP-TEST-002/result.json"
+    assert stored["prefix"] == "inspection-results"
+    assert stored["document"]["decision_source"] == "browser_rule_engine"
+    assert stored["document"]["opencv_analysis"]["opencv_version"] == "5.0.0"
+
+
+def test_standby_event_can_be_stored_without_frame_analysis(monkeypatch):
+    import app
+    monkeypatch.setattr(app, "_store_json_document", lambda prefix, document, identity: "sessions/standby.json")
+    response = lambda_handler(
+        {
+            "path": "/inspection-result",
+            "body": json.dumps({
+                "action": "STORE_INSPECTION_RESULT",
+                "event": {"status": "STANDBY", "jig": "STATION-01"},
+            }),
+        },
+        None,
+    )
+    assert response["statusCode"] == 200
+    assert json.loads(response["body"])["accepted"] is True
