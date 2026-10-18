@@ -34,13 +34,136 @@ def _decode_image(raw: bytes):
     return image
 
 
-def analyze_image(raw: bytes) -> dict:
-    """Meaningful server-side OpenCV 5 inspection stage.
+def _normalize_patch(values: np.ndarray) -> np.ndarray:
+    values = values.astype(np.float32)
+    mean = float(values.mean()) if values.size else 0.0
+    std = float(values.std()) if values.size else 0.0
+    scale = max(std, 8.0)
+    return np.clip((values - mean) / scale, -2.5, 2.5) / 2.5
 
-    This intentionally mirrors the browser pipeline at a coarse level: decode,
-    grayscale, denoise, edge extraction and circular candidate detection. The
-    browser-side master/ROI rule engine remains the final production authority.
-    """
+
+def _patch_similarity(reference: np.ndarray, current: np.ndarray, mode: str) -> float:
+    ref = _normalize_patch(reference)
+    cur = _normalize_patch(current)
+    structural = float(np.abs(ref - cur).mean()) / 2.0
+    brightness = float(np.abs(reference.astype(np.float32) - current.astype(np.float32)).mean()) / 255.0
+    if mode == "STRUCTURE_FIRST":
+        difference = structural * 0.92 + brightness * 0.08
+    elif mode == "INTENSITY_FIRST":
+        difference = structural * 0.25 + brightness * 0.75
+    else:
+        difference = structural * 0.75 + brightness * 0.25
+    return max(0.0, min(1.0, 1.0 - difference))
+
+
+def _decode_reference_patch(encoded: str):
+    raw = base64.b64decode(encoded, validate=True)
+    _validate_image_size(raw)
+    image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        return None
+    return cv2.resize(image, (64, 64), interpolation=cv2.INTER_AREA)
+
+
+def _evaluate_configured_rois(image: np.ndarray, config: dict) -> dict:
+    rois = config.get("rois")
+    if not isinstance(rois, list) or not rois:
+        return {"judgement": "INVALID", "primary_reason": "No inspection ROIs were supplied", "expected_count": 0, "detected_count": 0, "roi_results": []}
+
+    height, width = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    results = []
+    any_ng = False
+    any_uncertain = False
+    passed_count = 0
+
+    for roi in rois:
+        if not isinstance(roi, dict):
+            any_uncertain = True
+            continue
+        roi_id = str(roi.get("id") or "")
+        name = str(roi.get("name") or roi_id or "ROI")
+        x = float(roi.get("x", -1))
+        y = float(roi.get("y", -1))
+        roi_w = float(roi.get("width", 0))
+        roi_h = float(roi.get("height", 0))
+        left = int(round((x - roi_w / 2) * width))
+        top = int(round((y - roi_h / 2) * height))
+        crop_w = int(round(roi_w * width))
+        crop_h = int(round(roi_h * height))
+        if (not roi_id or not all(np.isfinite(v) for v in (x, y, roi_w, roi_h)) or
+                crop_w < 2 or crop_h < 2 or left < 0 or top < 0 or
+                left + crop_w > width or top + crop_h > height):
+            any_uncertain = True
+            results.append({"roi_id": roi_id, "roi_name": name, "status": "INVALID", "reason": "ROI crop is outside the image or has invalid dimensions"})
+            continue
+
+        current = cv2.resize(gray[top:top + crop_h, left:left + crop_w], (64, 64), interpolation=cv2.INTER_AREA)
+        references = roi.get("references")
+        if not isinstance(references, list):
+            references = []
+        comparisons = []
+        for reference in references:
+            if not isinstance(reference, dict) or reference.get("kind") not in ("OK", "NG"):
+                continue
+            encoded = reference.get("patch_base64")
+            if not isinstance(encoded, str) or not encoded:
+                continue
+            try:
+                patch = _decode_reference_patch(encoded)
+            except (ValueError, binascii.Error):
+                patch = None
+            if patch is not None:
+                comparisons.append({
+                    "kind": reference["kind"],
+                    "label": str(reference.get("label") or ""),
+                    "similarity": _patch_similarity(patch, current, str(roi.get("comparisonMode") or "BALANCED")),
+                })
+        ok = [item for item in comparisons if item["kind"] == "OK"]
+        ng = [item for item in comparisons if item["kind"] == "NG"]
+        if not ok or not ng:
+            any_uncertain = True
+            results.append({"roi_id": roi_id, "roi_name": name, "status": "INVALID", "reason": "Both readable OK and NG reference patches are required"})
+            continue
+
+        best_ok = max(ok, key=lambda item: item["similarity"])
+        best_ng = max(ng, key=lambda item: item["similarity"])
+        threshold = max(0.5, min(0.98, float(roi.get("minConfidence") or 0.75)))
+        if best_ok["similarity"] >= threshold and best_ok["similarity"] > best_ng["similarity"]:
+            passed_count += 1
+            results.append({"roi_id": roi_id, "roi_name": name, "status": "OK", "confidence": round(best_ok["similarity"], 4), "best_ok_similarity": round(best_ok["similarity"], 4), "best_ng_similarity": round(best_ng["similarity"], 4)})
+        elif best_ng["similarity"] >= threshold and best_ng["similarity"] > best_ok["similarity"]:
+            any_ng = True
+            results.append({"roi_id": roi_id, "roi_name": name, "status": "NG", "confidence": round(best_ng["similarity"], 4), "best_ok_similarity": round(best_ok["similarity"], 4), "best_ng_similarity": round(best_ng["similarity"], 4)})
+        else:
+            any_uncertain = True
+            results.append({"roi_id": roi_id, "roi_name": name, "status": "INVALID", "reason": "Neither approved OK nor NG reference passed the similarity threshold", "best_ok_similarity": round(best_ok["similarity"], 4), "best_ng_similarity": round(best_ng["similarity"], 4)})
+
+    if any_uncertain:
+        judgement = "INVALID"
+        reason = "AWS OpenCV could not verify every configured ROI with sufficient reference evidence"
+    elif any_ng:
+        judgement = "NG"
+        reason = "AWS OpenCV found at least one ROI matching its approved NG reference"
+    elif passed_count == len(rois):
+        judgement = "OK"
+        reason = f"All {passed_count}/{len(rois)} configured ROIs matched approved OK references"
+    else:
+        judgement = "INVALID"
+        reason = "Not all configured ROIs produced a reliable judgement"
+
+    return {
+        "judgement": judgement,
+        "primary_reason": reason,
+        "expected_count": len(rois),
+        "detected_count": passed_count,
+        "roi_results": results,
+        "decision_source": "aws_opencv_roi_reference",
+    }
+
+
+def analyze_image(raw: bytes, inspection_config: dict | None = None) -> dict:
+    """Analyze a frame with OpenCV and optionally classify product ROIs against approved references."""
     started = time.perf_counter()
     image = _decode_image(raw)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -64,7 +187,7 @@ def analyze_image(raw: bytes) -> dict:
         for x, y, radius in np.round(circles[0]).astype(int).tolist():
             candidates.append({"x": int(x), "y": int(y), "radius": int(radius)})
 
-    return {
+    result = {
         "opencv_version": cv2.__version__,
         "width": int(image.shape[1]),
         "height": int(image.shape[0]),
@@ -72,6 +195,11 @@ def analyze_image(raw: bytes) -> dict:
         "circle_candidates": candidates,
         "processing_ms": round((time.perf_counter() - started) * 1000, 3),
     }
+    if inspection_config is not None:
+        if not isinstance(inspection_config, dict):
+            raise ValueError("inspection_config must be a JSON object")
+        result.update(_evaluate_configured_rois(image, inspection_config))
+    return result
 
 
 def _response(status: int, body: dict):
@@ -170,19 +298,23 @@ def lambda_handler(event, context):
             if status != "STANDBY" and not inspection_id:
                 raise ValueError("Inspection ID is required for a completed result")
             opencv_analysis = payload.get("opencvAnalysis")
-            if status in ("OK", "NG", "INVALID", "ERROR"):
+            if status in ("OK", "NG", "INVALID"):
                 if not isinstance(opencv_analysis, dict):
                     raise ValueError("Completed inspection requires AWS OpenCV analysis evidence")
                 if not isinstance(opencv_analysis.get("opencv_version"), str):
                     raise ValueError("OpenCV analysis version is missing")
                 if not isinstance(opencv_analysis.get("circle_candidates"), list):
                     raise ValueError("OpenCV circle candidate list is missing")
+                if opencv_analysis.get("judgement") not in ("OK", "NG", "INVALID"):
+                    raise ValueError("OpenCV product judgement is missing")
             document = {
                 "schema_version": 1,
                 "decision_source": str(payload.get("decisionSource") or "unspecified"),
                 "received_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "event": inspection_event,
                 "opencv_analysis": opencv_analysis,
+                "browser_decision": payload.get("browserDecision"),
+                "analysis_error": payload.get("analysisError"),
             }
             identity = inspection_id or str(inspection_event.get("jig") or "station")
             key = _store_json_document("inspection-results", document, identity)
@@ -234,7 +366,8 @@ def lambda_handler(event, context):
         raw = base64.b64decode(image_base64, validate=True)
 
         _validate_image_size(raw)
-        result = analyze_image(raw)
+        inspection_config = payload.get("inspection_config")
+        result = analyze_image(raw, inspection_config)
         return _response(200, result)
 
     except PayloadTooLargeError:
