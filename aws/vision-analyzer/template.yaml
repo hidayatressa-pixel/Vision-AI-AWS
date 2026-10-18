@@ -104,6 +104,12 @@ Resources:
             RestApiId: !Ref VisionAnalyzerApi
             Path: /session
             Method: post
+        InspectionResultApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VisionAnalyzerApi
+            Path: /inspection-result
+            Method: post
 
 Outputs:
   EvidenceBucketName:
@@ -114,3 +120,5 @@ Outputs:
     Value: !Sub "https://${VisionAnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/config"
   VisionSessionLifecycleApi:
     Value: !Sub "https://${VisionAnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/session"
+  VisionInspectionResultApi:
+    Value: !Sub "https://${VisionAnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/inspection-result"
