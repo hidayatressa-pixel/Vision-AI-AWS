@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import * as engine from '../src/vision/eightPointPresenceEngine.ts';
 
 const slotCenters = [
-  [0.15, 0.18], [0.38, 0.18], [0.62, 0.18], [0.85, 0.18],
-  [0.42, 0.49], [0.62, 0.49],
-  [0.42, 0.80], [0.62, 0.80],
+  [0.18, 0.25], [0.39, 0.25], [0.61, 0.25], [0.82, 0.25],
+  [0.39, 0.52], [0.61, 0.52],
+  [0.39, 0.78], [0.61, 0.78],
 ];
 const rois = slotCenters.map(([x, y], index) => ({
   id: `P${index + 1}`,
