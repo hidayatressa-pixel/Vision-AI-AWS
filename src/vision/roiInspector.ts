@@ -314,7 +314,9 @@ export class ROIInspector {
       }
 
       const bestOk = okMatches.reduce((best, item) => item.score > best.score ? item : best);
-      const bestNg = ngMatches.reduce((best, item) => item.score > best.score ? item : best);
+      const bestNg = ngMatches.length > 0
+        ? ngMatches.reduce((best, item) => item.score > best.score ? item : best)
+        : null;
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
       const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
 
@@ -417,6 +419,14 @@ export class ROIInspector {
             isPresent: true, evidence: 'PRESENT', status: 'PASS',
           });
         }
+        continue;
+      }
+
+      if (!bestNg) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: no usable NG reference is available for generic ROI classification`,
+          frame.width, frame.height, currentShape
+        ));
         continue;
       }
 
