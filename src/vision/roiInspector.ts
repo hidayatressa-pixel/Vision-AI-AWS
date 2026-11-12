@@ -11,7 +11,7 @@ import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } fr
 import { GrayscaleImage } from './imageUtils';
 import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
-import { isEightPointPresenceCandidate } from './eightPointPresenceEngine';
+import { getEightPointSlotIds, isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -497,8 +497,12 @@ export class ROIInspector {
 
     // Preserve the Master ROI order as stable P1-P8 identifiers for the operator
     // overlay and inspection history. The slot order is configured once in Master.
-    const finalResults = eightPointPresenceMode
-      ? results.map((result, index) => ({ ...result, inspectionPointId: `P${index + 1}` }))
+    const slotIds = eightPointPresenceMode ? getEightPointSlotIds(rois) : null;
+    const finalResults = slotIds
+      ? results.map((result) => ({
+          ...result,
+          inspectionPointId: slotIds.get(result.roiId),
+        }))
       : results;
     const finalMatchedRoiCount = finalResults.filter((result) =>
       result.evidence === 'PRESENT' && result.status === 'PASS' && result.isWithinTolerance
