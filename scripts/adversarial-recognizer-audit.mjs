@@ -64,6 +64,7 @@ console.log(JSON.stringify({
     missingObject: compareDescriptors(ok, missing),
     shifted: compareDescriptors(ok, shifted),
     wrongSize: compareDescriptors(ok, wrongSize),
-    wrongContour: compareDescriptors(ok, wrongShape),\n    rectifiedTransform: compareDescriptors(ok, describePatch(rectified, SIZE, 'contrast')),
+    wrongContour: compareDescriptors(ok, wrongShape),
+    rectifiedTransform: compareDescriptors(ok, describePatch(rectified, SIZE, 'contrast')),
   },
 }));
