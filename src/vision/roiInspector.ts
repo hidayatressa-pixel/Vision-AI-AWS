@@ -9,7 +9,7 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
-import { compareDescriptors, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
+import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
 
 const PATCH_SIZE = 64;
@@ -336,9 +336,9 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const missingConfirmed = Boolean(bestAbsentNg &&
-          bestAbsentNg.score >= threshold &&
-          bestAbsentNg.score - bestOk.score >= classMargin);
+        const missingConfirmed = Boolean(bestAbsentNg && confirmsMissingObject(
+          currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
+        ));
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
