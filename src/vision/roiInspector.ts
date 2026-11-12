@@ -11,7 +11,7 @@ import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } fr
 import { GrayscaleImage } from './imageUtils';
 import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
-import { isEightPointPresenceProfile } from './eightPointPresenceCore.js';
+import { confirmsEightPointAbsence, isEightPointPresenceProfile } from './eightPointPresenceCore.js';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -342,10 +342,8 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const strongAbsenceEvidence = !currentShape.present &&
-          currentShape.presenceConfidence >= 0.75 && currentShape.areaRatio <= 0.003;
         const missingConfirmed = eightPointProfile
-          ? strongAbsenceEvidence
+          ? confirmsEightPointAbsence(currentShape)
           : Boolean(bestAbsentNg && confirmsMissingObject(
               currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
             ));
