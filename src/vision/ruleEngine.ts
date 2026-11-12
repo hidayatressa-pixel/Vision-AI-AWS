@@ -28,7 +28,7 @@ export class RuleEngine {
     extraObjects: ExtraDetectedObject[]
   ): RuleEvaluationResult {
     void extraObjects;
-    const expectedCount = revision.inspectionROIs.length;
+    const expectedCount = revision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length;
     const defects: DefectItem[] = [];
 
     const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
