@@ -23,7 +23,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
   let largest=null;
   for(let seed=0;seed<mask.length;seed++) {
     if(!mask[seed]||visited[seed]) continue;
-    let head=0,tail=0,minX=size,minY=size,maxX=-1,maxY=-1,sumX=0,sumY=0,area=0,perimeter=0;
+    let head=0,tail=0,minX=size,minY=size,maxX=-1,maxY=-1,sumX=0,sumY=0,sumContrast=0,area=0,perimeter=0;
     queue[tail++]=seed; visited[seed]=1;
     while(head<tail) {
       const index=queue[head++],x=index%size,y=Math.floor(index/size);
