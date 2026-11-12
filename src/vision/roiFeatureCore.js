@@ -69,11 +69,11 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
   const bboxHeight=largest?largest.maxY-largest.minY+1:0;
   const circularity=largest&&largest.perimeter>0?Math.min(1,4*Math.PI*largest.area/(largest.perimeter*largest.perimeter)):0;
   const solidity=largest&&bboxWidth*bboxHeight>0?largest.area/(bboxWidth*bboxHeight):0;
-  const hog=new Float32Array(128),cellEdges=new Float32Array(16),componentCells=new Float32Array(16);
+  const hog=new Float32Array(128),cellEdges=new Float32Array(16),componentCells=new Float32Array(64);
   if(largestPixels) for(const index of largestPixels) {
     const x=index%size,y=Math.floor(index/size);
-    const cx=Math.min(3,Math.floor(x/(size/4))),cy=Math.min(3,Math.floor(y/(size/4)));
-    componentCells[cy*4+cx]++;
+    const cx=Math.min(7,Math.floor(x/(size/8))),cy=Math.min(7,Math.floor(y/(size/8)));
+    componentCells[cy*8+cx]++;
   }
   let totalEdge=0;
   for(let y=1;y<size-1;y++) for(let x=1;x<size-1;x++) {
@@ -126,5 +126,5 @@ export function compareDescriptors(a,b){
   const solidity=1-Math.min(1,Math.abs(a.solidity-b.solidity));
   const position=Math.exp(-Math.hypot(a.centroidX-b.centroidX,a.centroidY-b.centroidY)*5);
   const contour=aspect*0.45+circularity*0.25+solidity*0.30;
-  return Math.max(0,Math.min(1,hog*0.22+spatial*0.15+occupancy*0.25+size*0.15+contour*0.13+position*0.10));
+  return Math.max(0,Math.min(1,hog*0.18+spatial*0.12+occupancy*0.35+size*0.12+contour*0.13+position*0.10));
 }
