@@ -65,7 +65,6 @@ export class RuleEngine {
 
     if (isEightPointPresenceCandidate(revision.inspectionROIs)) {
       const eightPoint = evaluateEightPointPresence(revision.inspectionROIs, roiResults);
-      const firstDefect = eightPoint.defects[0];
       const summary = eightPoint.judgement === 'OK'
         ? 'All 8 required screw positions are confirmed present'
         : eightPoint.judgement === 'NG'
