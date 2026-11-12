@@ -511,7 +511,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
       // Preserve engineer-configured alignment anchors; saving a master must never erase calibration data.
       anchors: editedRevision.anchors || [],
-      expectedObjectCount: editedRevision.inspectionROIs.length,
+      expectedObjectCount: editedRevision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
         objectType: roi.objectType,
@@ -837,7 +837,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
                         ...prev,
-                        expectedObjectCount: prev.inspectionROIs.length + 1,
+                        expectedObjectCount: [...prev.inspectionROIs, newRoi].filter((roi) => roi.expectedObjectPresence !== false).length,
                         inspectionROIs: [...prev.inspectionROIs, newRoi],
                         referenceImages: prev.referenceImages.map((reference) => ({
                           ...reference,
@@ -912,7 +912,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                               const remaining = editedRevision.inspectionROIs.filter((item) => item.id !== roi.id);
                               setEditedRevision((prev) => ({
                                 ...prev,
-                                expectedObjectCount: remaining.length,
+                                expectedObjectCount: remaining.filter((item) => item.expectedObjectPresence !== false).length,
                                 inspectionROIs: remaining,
                                 referenceImages: (prev.referenceImages || []).map((reference) => {
                                   const roiLayouts = { ...(reference.roiLayouts || {}) };
@@ -948,7 +948,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <label className="col-span-2 flex items-center gap-2 text-[10px] text-slate-300">
                             <input type="checkbox" checked={roi.expectedObjectPresence !== false} onClick={(event) => event.stopPropagation()} onChange={(event) => {
                               const expectedObjectPresence = event.target.checked;
-                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedObjectPresence } : item) }));
+                              setEditedRevision((prev) => {
+                                const inspectionROIs = prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedObjectPresence } : item);
+                                return { ...prev, inspectionROIs, expectedObjectCount: inspectionROIs.filter((item) => item.expectedObjectPresence !== false).length };
+                              });
                             }} />
                             Object must be physically present in this ROI
                           </label>
