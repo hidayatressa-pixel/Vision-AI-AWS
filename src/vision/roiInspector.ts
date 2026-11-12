@@ -11,7 +11,6 @@ import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } fr
 import { GrayscaleImage } from './imageUtils';
 import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
-import { applyEightPointPresence } from './eightPointPresenceEngine.js';
 import { isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 const PATCH_SIZE = 64;
@@ -488,26 +487,7 @@ export class ROIInspector {
 
     // Alignment tolerances are checked by AlignmentEngine. Object position and
     // relative size tolerances are checked here in the rectified ROI coordinate space.
-    // When a Master contains exactly eight required screw ROIs, aggregate them
-    // as named physical slots P1..P8. Existing non-eight-point Masters retain
-    // the legacy ROI path unchanged.
-    const eightPoint = applyEightPointPresence(rois, results, frame.width, frame.height);
-    let finalResults = eightPoint.enabled ? eightPoint.roiResults : results;
-    if (eightPoint.enabled && !eightPoint.configurationValid) {
-      finalResults = results.map((result, index) => ({
-        ...result,
-        inspectionPointId: `P${index + 1}`,
-        isPresent: false,
-        evidence: 'UNCERTAIN' as const,
-        status: 'WARNING' as const,
-        isWithinTolerance: false,
-        failureReason: eightPoint.issues.join('; ') || 'Eight-point Master configuration is invalid',
-      }));
-    }
-    const finalMatchedRoiCount = finalResults.filter((result) =>
-      result.evidence === 'PRESENT' && result.status === 'PASS' && result.isWithinTolerance
-    ).length;
-    return { roiResults: finalResults, extraObjects: [], matchedRoiCount: finalMatchedRoiCount };
+    return { roiResults: results, extraObjects: [], matchedRoiCount };
   }
 }
 
