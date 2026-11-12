@@ -21,6 +21,19 @@ function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): Reference
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
+  const anchors = revision.anchors || [];
+  const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
+    anchors.every((anchor) => Boolean(anchor.id?.trim()));
+  const anchorsValid = anchors.length === 0 || (
+    anchors.length >= 3 &&
+    anchorIdsUnique &&
+    anchors.every((anchor) =>
+      Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
+      Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
+      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
+      Number.isFinite(anchor.patchRadius) && anchor.patchRadius > 0
+    )
+  );
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
@@ -72,9 +85,13 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   return [
     {
       label: 'Alignment',
-      valid: true,
-      detail: 'Not required in Simple ROI mode',
-      error: '',
+      valid: anchorsValid,
+      detail: anchors.length === 0
+        ? 'Fixed-camera mode · no fiducial anchors configured'
+        : anchorsValid
+          ? `Fiducial alignment enabled · ${anchors.length} anchors configured`
+          : `Invalid anchor setup · ${anchors.length} configured (alignment requires zero or at least three valid anchors)`,
+      error: 'Use fixed-camera mode with zero anchors, or configure at least three unique, valid fiducial anchors.',
     },
     {
       label: 'Rectangular ROIs',
