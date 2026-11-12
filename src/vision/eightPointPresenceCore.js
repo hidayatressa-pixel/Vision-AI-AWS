@@ -21,6 +21,15 @@ export function isEightPointPresenceProfile(rois) {
     new Set(rois.map((roi) => roi.id)).size === 8;
 }
 
+export function confirmsEightPointAbsence(shape) {
+  return Boolean(shape) &&
+    shape.present === false &&
+    Number.isFinite(shape.presenceConfidence) &&
+    shape.presenceConfidence >= 0.75 &&
+    Number.isFinite(shape.areaRatio) &&
+    shape.areaRatio <= 0.003;
+}
+
 export function evaluateEightPointPresence(revision, alignment, roiResults) {
   const rois = revision?.inspectionROIs || [];
   if (!isEightPointPresenceProfile(rois)) return null;
