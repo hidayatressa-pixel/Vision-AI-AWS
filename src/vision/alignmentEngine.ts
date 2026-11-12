@@ -42,12 +42,33 @@ export class AlignmentEngine {
       };
     }
 
-    if (masterWidth <= 0 || masterHeight <= 0) {
+    if (!Number.isFinite(masterWidth) || !Number.isFinite(masterHeight) || masterWidth <= 0 || masterHeight <= 0) {
       return {
         success: false, translationX: 0, translationY: 0, rotationDeg: 0,
         scale: 1, confidence: 0, matchedAnchorCount: 0,
         totalAnchorCount: anchors.length, anchorPositions: [],
         errorMessage: 'Invalid master dimensions',
+      };
+    }
+
+    const anchorIds = new Set(anchors.map((anchor) => anchor.id));
+    const anchorsWellFormed = anchorIds.size === anchors.length && anchors.every((anchor) =>
+      Boolean(anchor.id?.trim()) &&
+      Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
+      Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
+      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
+      Number.isFinite(anchor.patchRadius) && anchor.patchRadius > 0
+    );
+    const nonCollinear = anchors.some((a, i) =>
+      anchors.some((b, j) => j > i && anchors.some((d, k) => k > j &&
+        Math.abs((b.x - a.x) * (d.y - a.y) - (d.x - a.x) * (b.y - a.y)) > 0.0005))
+    );
+    if (!anchorsWellFormed || !nonCollinear) {
+      return {
+        success: false, translationX: 0, translationY: 0, rotationDeg: 0,
+        scale: 1, confidence: 0, matchedAnchorCount: 0,
+        totalAnchorCount: anchors.length, anchorPositions: [],
+        errorMessage: 'Reference anchors must be unique, valid, and non-collinear',
       };
     }
 
@@ -174,23 +195,29 @@ export class AlignmentEngine {
       matchedAnchors.reduce((sum, anchor) => sum + anchor.confidence, 0) /
       matchedAnchors.length;
 
-    const maxRotation = tolerance.maxRotationToleranceDeg || 15;
-    const minConfidence = tolerance.minAlignmentConfidence || 0.55;
+    const maxRotation = tolerance.maxRotationToleranceDeg ?? 15;
+    const minConfidence = tolerance.minAlignmentConfidence ?? 0.55;
 
     const minScale = tolerance.minScale ?? 0.80;
     const maxScale = tolerance.maxScale ?? 1.20;
     const maxResidualPx = tolerance.maxAlignmentResidualPx ??
       Math.max(tolerance.maxPositionOffsetPx * 2, 10);
 
-    const rotationOk = Math.abs(rotationDeg) <= maxRotation;
-    const confidenceOk = meanConfidence >= minConfidence;
-    const scaleOk = scale >= minScale && scale <= maxScale;
-    const residualOk = rmsResidual <= maxResidualPx;
+    const rotationOk = toleranceConfigValid && Math.abs(rotationDeg) <= maxRotation;
+    const confidenceOk = toleranceConfigValid && meanConfidence >= minConfidence;
+    const scaleOk = toleranceConfigValid && scale >= minScale && scale <= maxScale;
+    const toleranceConfigValid = Number.isFinite(maxRotation) && maxRotation >= 0 && maxRotation <= 45 &&
+      Number.isFinite(minConfidence) && minConfidence >= 0 && minConfidence <= 1 &&
+      Number.isFinite(minScale) && minScale > 0 && Number.isFinite(maxScale) && maxScale >= minScale &&
+      Number.isFinite(maxResidualPx) && maxResidualPx > 0;
+    const residualOk = toleranceConfigValid && rmsResidual <= maxResidualPx;
     const success = rotationOk && confidenceOk && scaleOk && residualOk;
 
     let errorMessage: string | undefined;
 
-    if (!rotationOk) {
+    if (!toleranceConfigValid) {
+      errorMessage = 'Alignment tolerance configuration is invalid';
+    } else if (!rotationOk) {
       errorMessage =
         `Product rotation (${rotationDeg.toFixed(1)}°) exceeds tolerance (±${maxRotation}°)`;
     } else if (!scaleOk) {
