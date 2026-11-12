@@ -69,8 +69,9 @@ export interface ROIInspectionResult {
   masterPosition: Position2D; // Master normalized position
   expectedTransformedPosition: Position2D; // In current frame coordinates (normalized)
   actualDetectedPosition: Position2D | null; // Detected foreground centroid in normalized frame coordinates
-  positionOffsetPx: number;
-  positionOffsetMm: number;
+  positionOffsetPx: number | null;
+  /** Null until a calibrated pixel-to-mm conversion is configured. */
+  positionOffsetMm: number | null;
   isWithinTolerance: boolean;
   confidence: number;
   /** True only when foreground/object evidence was detected in this ROI. */
