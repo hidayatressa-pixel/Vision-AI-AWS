@@ -272,14 +272,6 @@ export class ROIInspector {
         ? Math.max(0.5, Math.min(0.98, tolerance.minScrewConfidence))
         : 0.5;
       const hasPresenceEvidence = currentShape.presenceConfidence >= presenceThreshold;
-      if (okReferences.length === 0 || ngReferences.length === 0) {
-        results.push(uncertainResult(
-          roi, geometry, 'Both OK and NG reference images are required for classification',
-          frame.width, frame.height, currentShape
-        ));
-        continue;
-      }
-
       const expectedFramePosition = { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height };
       const detectedLocalX = currentShape.centroidX - 0.5;
       const detectedLocalY = currentShape.centroidY - 0.5;
@@ -288,6 +280,34 @@ export class ROIInspector {
       const actualDetectedPosition = currentShape.present
         ? { x: detectedFrameX / frame.width, y: detectedFrameY / frame.height }
         : null;
+
+      // Validate reference evidence before using live absence/presence to make a
+      // product judgement. A broken Master OK crop must produce WARNING/INVALID,
+      // not a false product NG or an accidental OK.
+      const comparisons = await Promise.all(usableReferences.map(async (reference) => {
+        const patch = await loadReference(reference, roi);
+        if (!patch) return null;
+        const compared = comparePatches(patch, current, roi);
+        return { reference, ...compared };
+      }));
+      const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
+      const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
+      const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
+      if (allOkMatches.length === 0 || ngMatches.length === 0) {
+        results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
+        continue;
+      }
+      // Positive Master references must represent the configured expected state.
+      const okMatches = expectedPresence
+        ? allOkMatches.filter((item) => item.referenceShape.present)
+        : allOkMatches.filter((item) => !item.referenceShape.present);
+      if (okMatches.length === 0) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: Master OK reference does not show the configured expected object state`,
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
 
       if (!hasPresenceEvidence) {
         results.push({
@@ -342,28 +362,6 @@ export class ROIInspector {
           isWithinTolerance: true, confidence: currentShape.presenceConfidence,
           isPresent: false, evidence: 'ABSENT', status: 'PASS',
         });
-        continue;
-      }
-
-      const comparisons = await Promise.all(usableReferences.map(async (reference) => {
-        const patch = await loadReference(reference, roi);
-        if (!patch) return null;
-        const compared = comparePatches(patch, current, roi);
-        return { reference, ...compared };
-      }));
-      const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
-      const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
-      const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
-      // A Master OK image that does not visibly contain the required object is
-      // not a valid positive reference for this ROI. Never learn "missing" as OK.
-      const okMatches = expectedPresence
-        ? allOkMatches.filter((item) => item.referenceShape.present)
-        : allOkMatches.filter((item) => !item.referenceShape.present);
-      if (okMatches.length === 0 || ngMatches.length === 0) {
-        const message = allOkMatches.length === 0 || ngMatches.length === 0
-          ? `${roi.name}: one or more OK/NG reference crops could not be decoded`
-          : `${roi.name}: Master OK reference does not show the configured expected object state`;
-        results.push(uncertainResult(roi, geometry, message, frame.width, frame.height, currentShape));
         continue;
       }
 
