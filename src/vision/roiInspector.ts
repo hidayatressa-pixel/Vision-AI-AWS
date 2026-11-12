@@ -11,6 +11,7 @@ import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } fr
 import { GrayscaleImage } from './imageUtils';
 import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
+import { isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -251,6 +252,7 @@ export class ROIInspector {
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
+    const eightPointPresenceMode = isEightPointPresenceCandidate(rois);
     // Keep the existing signature for callers that still supply the RGB frame;
     // ROI feature extraction uses the already-normalized grayscale frame.
     void colorFrame;
@@ -295,7 +297,7 @@ export class ROIInspector {
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
-      if (allOkMatches.length === 0 || ngMatches.length === 0) {
+      if (allOkMatches.length === 0 || (!eightPointPresenceMode && ngMatches.length === 0)) {
         results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
         continue;
       }
@@ -338,9 +340,12 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const missingConfirmed = Boolean(bestAbsentNg && confirmsMissingObject(
-          currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
-        ));
+        const missingConfirmed = eightPointPresenceMode
+          ? currentShape.presenceConfidence >= Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)) &&
+            bestOk.score < Math.min(0.25, threshold - classMargin)
+          : Boolean(bestAbsentNg && confirmsMissingObject(
+            currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
+          ));
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
@@ -384,6 +389,30 @@ export class ROIInspector {
           isWithinTolerance: true, confidence: currentShape.presenceConfidence,
           isPresent: false, evidence: 'ABSENT', status: 'PASS',
         });
+        continue;
+      }
+
+      // In the eight-screw profile the requested judgement is physical presence,
+      // not full OK/NG quality classification. A present patch must still match
+      // the positive screw Master strongly enough to reject unrelated texture.
+      if (eightPointPresenceMode) {
+        if (bestOk.score < threshold) {
+          results.push(uncertainResult(
+            roi, geometry, `${roi.name}: screw-like foreground was detected but did not match the positive screw Master`,
+            frame.width, frame.height, currentShape
+          ));
+        } else {
+          matchedRoiCount++;
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: true, confidence: Math.round(bestOk.score * 100) / 100,
+            isPresent: true, evidence: 'PRESENT', status: 'PASS',
+          });
+        }
         continue;
       }
 
