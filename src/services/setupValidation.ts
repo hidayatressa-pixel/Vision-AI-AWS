@@ -21,6 +21,7 @@ function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): Reference
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
+  const expectedObjectCount = rois.filter((roi) => roi.expectedObjectPresence !== false).length;
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
@@ -177,8 +178,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Expected ROI count',
-      valid: revision.expectedObjectCount === rois.length,
-      detail: `${revision.expectedObjectCount} expected / ${rois.length} configured`,
+      valid: revision.expectedObjectCount === expectedObjectCount,
+      detail: `${revision.expectedObjectCount} expected / ${expectedObjectCount} presence-required ROI(s)`,
       error: 'Expected ROI count must match the number of rectangular ROIs.',
     },
     {
