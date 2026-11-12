@@ -18,6 +18,7 @@ import {
 import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout, RoiBoundaryPolicy } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
+import { isEightPointPresenceCandidate } from '../../vision/eightPointPresenceEngine';
 
 interface MasterSetupModalProps {
   master: MasterProduct;
@@ -43,6 +44,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -554,7 +556,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Configure this product's inspection areas and any number of OK/NG reference examples.
+                {isEightPointPresenceMode
+                  ? 'Eight-point screw presence · one positive OK Master reference; NG references optional.'
+                  : 'Configure this product\'s inspection areas and any number of OK/NG reference examples.'}
               </p>
             </div>
           </div>
@@ -730,7 +734,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.</span>
+              <span>{isEightPointPresenceMode
+                ? 'Each of the eight slots is checked for physical screw presence against the positive OK Master. NG reference images are optional.'
+                : 'Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.'}</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
@@ -1074,7 +1080,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Each ROI now checks physical presence, spatial edge features, contour/shape, relative size, and position against its own OK/NG reference crops. Alignment and camera movement are checked separately before ROI mapping. Final thresholds still require calibration with real station images.
+                  {isEightPointPresenceMode
+                    ? 'Eight-point mode first aligns the moving workpiece, then checks each of the eight screw slots independently against the positive OK Master. Confirmed absence is NG; weak or blurred evidence remains INVALID. Final thresholds require calibration with real station images.'
+                    : 'Each ROI checks physical presence, spatial edge features, contour/shape, relative size, and position against its own OK/NG reference crops. Alignment and camera movement are checked separately before ROI mapping. Final thresholds still require calibration with real station images.'}
                 </div>
               </div>
             )}
