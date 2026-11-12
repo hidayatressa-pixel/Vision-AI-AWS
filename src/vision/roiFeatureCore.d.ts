@@ -19,3 +19,4 @@ export function describePatch(values: Float32Array, size?: number, polarity?: 'b
 export function compareDescriptors(a: RoiShapeDescriptor, b: RoiShapeDescriptor): number;
 
 export function rectifyPatch(frameValues: ArrayLike<number>, frameWidth: number, frameHeight: number, centerX: number, centerY: number, roiWidth: number, roiHeight: number, cos: number, sin: number, size?: number): Float32Array | null;
+export function contourWithinTolerance(a: RoiShapeDescriptor, b: RoiShapeDescriptor, tolerance?: number): boolean;
