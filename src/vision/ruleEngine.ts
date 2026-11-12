@@ -11,6 +11,7 @@ import {
 } from '../types/inspection';
 import { MasterRevision } from '../types/master';
 import { getMasterValidationChecks } from '../services/setupValidation';
+import { evaluateEightPointPresence } from './eightPointPresenceCore.js';
 
 export interface RuleEvaluationResult {
   judgement: JudgementResult;
@@ -60,6 +61,17 @@ export class RuleEngine {
         actual: 'Invalid frame',
       });
       return { judgement: 'INVALID', primaryReason: defects[0].message, defects, expectedCount, detectedCount: 0 };
+    }
+
+    const eightPointResult = evaluateEightPointPresence(revision, alignment, roiResults);
+    if (eightPointResult) {
+      return {
+        judgement: eightPointResult.judgement,
+        primaryReason: eightPointResult.primaryReason,
+        defects: eightPointResult.defects,
+        expectedCount: eightPointResult.expectedCount,
+        detectedCount: eightPointResult.detectedCount,
+      };
     }
 
     const resultById = new Map(roiResults.map((result) => [result.roiId, result]));
