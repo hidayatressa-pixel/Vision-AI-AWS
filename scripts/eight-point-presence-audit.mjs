@@ -65,4 +65,4 @@ const failedAlignment = evaluateEightPointPresence(revision, { success: false, e
 assert.equal(failedAlignment.judgement, 'INVALID');
 assert.equal(failedAlignment.uncertainCount, 8);
 
-console.log(JSON.stringify({ passed: 12, scenarios: ['all-ok', 'missing-P1', 'missing-P6', 'missing-P7', 'missing-P8', 'uncertain', 'NG-plus-uncertain', 'alignment-failed'] }));
+console.log(JSON.stringify({ passed: 27, scenarios: ['all-ok', 'missing-P1', 'missing-P6', 'missing-P7', 'missing-P8', 'unmatched-object', 'uncertain', 'NG-plus-uncertain', 'alignment-failed'] }));
