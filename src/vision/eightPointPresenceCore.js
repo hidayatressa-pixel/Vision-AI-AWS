@@ -93,7 +93,6 @@ export function evaluateEightPointPresence(revision, alignment, roiResults) {
       });
     } else if (result?.evidence === 'PRESENT' && result.status === 'FAIL') {
       status = 'NG';
-      detectedCount += 1;
       reason ||= `${roi.name}: detected object did not satisfy the approved screw reference`;
       defects.push({
         code: 'VISUAL_MISMATCH',
