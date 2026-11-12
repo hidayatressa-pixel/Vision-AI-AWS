@@ -203,13 +203,13 @@ export class AlignmentEngine {
     const maxResidualPx = tolerance.maxAlignmentResidualPx ??
       Math.max(tolerance.maxPositionOffsetPx * 2, 10);
 
-    const rotationOk = toleranceConfigValid && Math.abs(rotationDeg) <= maxRotation;
-    const confidenceOk = toleranceConfigValid && meanConfidence >= minConfidence;
-    const scaleOk = toleranceConfigValid && scale >= minScale && scale <= maxScale;
     const toleranceConfigValid = Number.isFinite(maxRotation) && maxRotation >= 0 && maxRotation <= 45 &&
       Number.isFinite(minConfidence) && minConfidence >= 0 && minConfidence <= 1 &&
       Number.isFinite(minScale) && minScale > 0 && Number.isFinite(maxScale) && maxScale >= minScale &&
       Number.isFinite(maxResidualPx) && maxResidualPx > 0;
+    const rotationOk = toleranceConfigValid && Math.abs(rotationDeg) <= maxRotation;
+    const confidenceOk = toleranceConfigValid && meanConfidence >= minConfidence;
+    const scaleOk = toleranceConfigValid && scale >= minScale && scale <= maxScale;
     const residualOk = toleranceConfigValid && rmsResidual <= maxResidualPx;
     const success = rotationOk && confidenceOk && scaleOk && residualOk;
 
