@@ -296,7 +296,9 @@ export class ROIInspector {
         actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
         isWithinTolerance: okConfirmed,
         confidence: Math.round(bestSimilarity * 100) / 100,
-        isPresent: okConfirmed,
+        // This field means the ROI produced classifiable reference evidence.
+        // It does not claim independent physical object localization.
+        isPresent: !uncertain,
         evidence: uncertain ? 'UNCERTAIN' : 'PRESENT',
         status,
         failureReason: reason,
