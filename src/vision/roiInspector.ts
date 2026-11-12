@@ -215,13 +215,15 @@ function comparePatches(
 function uncertainResult(
   roi: InspectionROI,
   geometry: RoiFrameGeometry | null,
-  reason: string
+  reason: string,
+  frameWidth: number,
+  frameHeight: number
 ): ROIInspectionResult {
   return {
     roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
     masterPosition: { x: roi.x, y: roi.y },
     expectedTransformedPosition: geometry
-      ? { x: geometry.centerX, y: geometry.centerY }
+      ? { x: geometry.centerX / frameWidth, y: geometry.centerY / frameHeight }
       : { x: roi.x, y: roi.y },
     actualDetectedPosition: null,
     positionOffsetPx: null,
@@ -257,11 +259,11 @@ export class ROIInspector {
       if (!geometry) {
         results.push(uncertainResult(roi, null, !alignment.success
           ? (alignment.errorMessage || 'Alignment was not verified')
-          : `${roi.name}: transformed ROI is outside the camera frame or has invalid geometry`));
+          : `${roi.name}: transformed ROI is outside the camera frame or has invalid geometry`, frame.width, frame.height));
         continue;
       }
       if (okReferences.length === 0 || ngReferences.length === 0) {
-        results.push(uncertainResult(roi, geometry, 'Both OK and NG reference images are required for classification'));
+        results.push(uncertainResult(roi, geometry, 'Both OK and NG reference images are required for classification', frame.width, frame.height));
         continue;
       }
 
@@ -345,7 +347,7 @@ export class ROIInspector {
       const okMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
       if (okMatches.length === 0 || ngMatches.length === 0) {
-        results.push(uncertainResult(roi, geometry, `${roi.name}: one or more OK/NG reference crops could not be decoded`));
+        results.push(uncertainResult(roi, geometry, `${roi.name}: one or more OK/NG reference crops could not be decoded`, frame.width, frame.height));
         continue;
       }
 
