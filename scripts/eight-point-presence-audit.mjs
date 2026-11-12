@@ -52,6 +52,21 @@ const allPresent = engine.evaluateEightPointPresence(rois, rois.map((roi) => res
 assert.equal(allPresent.judgement, 'OK');
 assert.equal(allPresent.detectedCount, 8);
 assert.equal(allPresent.missingCount, 0);
+assert.deepEqual(allPresent.points.map((point) => point.pointId), ['P1','P2','P3','P4','P5','P6','P7','P8']);
+
+const reversed = engine.evaluateEightPointPresence([...rois].reverse(), [...rois].reverse().map((roi) => resultFor(roi, 'PRESENT')));
+assert.equal(reversed.points[0].roiId, 'P1', 'slot identity must follow Master geometry, not array order');
+assert.equal(reversed.points[0].pointId, 'P1');
+
+const invalidRowPattern = rois.map((roi, index) => ({
+  ...roi,
+  y: index < 4 ? 0.2 : 0.5,
+  x: 0.1 + (index % 4) * 0.2,
+}));
+assert.ok(
+  engine.validateEightPointPresenceLayout(invalidRowPattern).some((message) => message.includes('4-2-2')),
+  'Master layout must preserve the specified 4-2-2 point arrangement'
+);
 
 const oneMissing = engine.evaluateEightPointPresence(rois, rois.map((roi, index) =>
   resultFor(roi, index === 0 ? 'ABSENT' : 'PRESENT')
