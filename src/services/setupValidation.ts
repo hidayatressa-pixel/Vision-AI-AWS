@@ -35,13 +35,23 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     anchors.every((anchor) =>
       Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
       Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
-      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
-      Number.isFinite(anchor.patchRadius) && anchor.patchRadius > 0
+      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 && anchor.searchRadius <= 0.5 &&
+      Number.isFinite(anchor.patchRadius) && anchor.patchRadius >= 4 && anchor.patchRadius <= 20
     )
   );
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
+  const tolerance = revision.tolerance;
+  const tolerancesValid = Boolean(tolerance) &&
+    Number.isFinite(tolerance.maxPositionOffsetPx) && tolerance.maxPositionOffsetPx >= 0 &&
+    Number.isFinite(tolerance.maxPositionOffsetMm) && tolerance.maxPositionOffsetMm >= 0 &&
+    Number.isFinite(tolerance.maxRotationToleranceDeg) && tolerance.maxRotationToleranceDeg >= 0 && tolerance.maxRotationToleranceDeg <= 45 &&
+    Number.isFinite(tolerance.minAlignmentConfidence) && tolerance.minAlignmentConfidence >= 0 && tolerance.minAlignmentConfidence <= 1 &&
+    Number.isFinite(tolerance.minScrewConfidence) && tolerance.minScrewConfidence >= 0 && tolerance.minScrewConfidence <= 1 &&
+    (tolerance.minScale === undefined || (Number.isFinite(tolerance.minScale) && tolerance.minScale > 0)) &&
+    (tolerance.maxScale === undefined || (Number.isFinite(tolerance.maxScale) && tolerance.maxScale >= (tolerance.minScale ?? 0.8))) &&
+    (tolerance.maxAlignmentResidualPx === undefined || (Number.isFinite(tolerance.maxAlignmentResidualPx) && tolerance.maxAlignmentResidualPx > 0));
   const zone = revision.detectionZone;
   // Backward compatibility: legacy profiles allow out-of-zone ROIs with a warning.
   const roiBoundaryPolicy = revision.roiBoundaryPolicy || 'WARNING';
@@ -146,6 +156,12 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       valid: referenceLayoutsValid && layoutCoverage,
       detail: layoutCoverage ? `ROI layouts saved for ${references.length} references` : 'Some reference layouts need initialization',
       error: 'Configure a valid rectangle layout for every ROI on each reference image.',
+    },
+    {
+      label: 'Alignment and inspection tolerances',
+      valid: tolerancesValid,
+      detail: tolerancesValid ? 'Position, rotation, scale, confidence and residual limits are valid' : 'One or more tolerance values are invalid',
+      error: 'Check global pixel/mm offsets, alignment confidence, rotation, scale and residual limits.',
     },
     {
       label: 'Detection zone',
