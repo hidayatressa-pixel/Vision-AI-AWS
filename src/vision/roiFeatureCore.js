@@ -114,6 +114,14 @@ function ratioSimilarity(a,b,sensitivity=0.5){
   if(a<=0||b<=0)return a===b?1:0;
   return Math.exp(-Math.abs(Math.log(a/b))*sensitivity);
 }
+export function contourWithinTolerance(a, b, tolerance = 0.10) {
+  if (!a || !b || !a.present || !b.present || !Number.isFinite(tolerance) || tolerance < 0) return false;
+  const aspectChange = Math.abs(a.aspectRatio - b.aspectRatio) / Math.max(b.aspectRatio, 0.001);
+  const circularityChange = Math.abs(a.circularity - b.circularity);
+  const solidityChange = Math.abs(a.solidity - b.solidity);
+  return aspectChange <= tolerance && circularityChange <= tolerance && solidityChange <= tolerance;
+}
+
 export function compareDescriptors(a,b){
   if(!a||!b)return 0;
   if(a.present!==b.present)return 0.05;
