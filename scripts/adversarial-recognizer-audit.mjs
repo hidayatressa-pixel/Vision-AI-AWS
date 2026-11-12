@@ -32,6 +32,8 @@ const wrongShape = describePatch(roundObject, SIZE, 'contrast');
 
 assert.equal(ok.present, true, 'bolt reference should be detected');
 assert.equal(missing.present, false, 'uniform missing-object crop should be absent');
+assert.ok(missing.presenceConfidence >= 0.65, 'clean empty background should provide strong absence evidence');
+assert.ok(compareDescriptors(ok, missing) < 0.25, 'empty background should be clearly different from the positive screw Master');
 assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should remain similar under brightness shift');
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
 assert.equal(confirmsMissingObject(false, 0.05, 0.98, 0.75, 0.06), true, 'missing bolt should be NG when a matching labelled missing-object reference exists');
