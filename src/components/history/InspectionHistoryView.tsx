@@ -387,7 +387,7 @@ export const InspectionHistoryView: React.FC<InspectionHistoryViewProps> = ({ on
                       }`}
                     >
                       <div>
-                        <div className="font-bold text-white">{r.roiName}</div>
+                        <div className="font-bold text-white">{r.inspectionPointId ? `${r.inspectionPointId} · ` : ""}{r.roiName}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
                           Offset: +{r.positionOffsetMm}mm · Conf: {(r.confidence * 100).toFixed(0)}%
                         </div>

@@ -186,7 +186,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
           ctx.font = 'bold 10px monospace';
           ctx.fillStyle = color;
           ctx.textAlign = 'start';
-          ctx.fillText(`${result.roiName} ${Math.round(result.confidence * 100)}%`, left + 3, Math.max(12, top - 4));
+          ctx.fillText(`${result.inspectionPointId ? `${result.inspectionPointId} · ` : ""}${result.roiName} ${Math.round(result.confidence * 100)}%`, left + 3, Math.max(12, top - 4));
         }
       } else {
         for (const roi of activeRevision.inspectionROIs) {
@@ -480,7 +480,7 @@ export const LiveInspectionView: React.FC<LiveInspectionViewProps> = ({
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-bold font-mono text-xs">{roi.roiName}</span>
+                  <span className="font-bold font-mono text-xs">{roi.inspectionPointId ? `${roi.inspectionPointId} · ` : ""}{roi.roiName}</span>
                   {roi.status === 'PASS' ? (
                     <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                   ) : (

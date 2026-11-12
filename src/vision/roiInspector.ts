@@ -1,12 +1,17 @@
 /**
- * Multi-reference rectangular ROI inspector.
- * Uses master-to-frame alignment, reference-specific crops, and fail-safe
- * classification. A patch that matches neither approved class is UNCERTAIN,
- * never an automatic NG or OK.
+ * Reference-based ROI inspector with explicit physical presence, contour,
+ * spatial feature, relative size, and position checks.
+ *
+ * The matcher is intentionally fail-safe: insufficient evidence is WARNING,
+ * never an automatic OK. It is a deterministic classical-CV recognizer, not
+ * a trained detector and not a substitute for real-camera validation.
  */
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
+import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
+import type { RoiShapeDescriptor } from './roiFeatureCore.js';
+import { getEightPointSlotIds, isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -24,20 +29,22 @@ function normalizePatch(values: Float32Array): Float32Array {
 
 function imageToPatch(image: HTMLImageElement, layout?: ReferenceRoiLayout): Float32Array | null {
   try {
+    if (!image.naturalWidth || !image.naturalHeight) return null;
     const canvas = document.createElement('canvas');
     canvas.width = PATCH_SIZE;
     canvas.height = PATCH_SIZE;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     if (layout) {
-      const left = Math.max(0, Math.min(1, layout.x)) * image.naturalWidth;
-      const top = Math.max(0, Math.min(1, layout.y)) * image.naturalHeight;
-      const width = Math.max(0.02, Math.min(1, layout.width)) * image.naturalWidth;
-      const height = Math.max(0.02, Math.min(1, layout.height)) * image.naturalHeight;
-      if (left + width > image.naturalWidth || top + height > image.naturalHeight) return null;
+      const left = layout.x * image.naturalWidth;
+      const top = layout.y * image.naturalHeight;
+      const width = layout.width * image.naturalWidth;
+      const height = layout.height * image.naturalHeight;
+      if (left < 0 || top < 0 || width < 2 || height < 2 ||
+          left + width > image.naturalWidth || top + height > image.naturalHeight) return null;
       ctx.drawImage(image, left, top, width, height, 0, 0, PATCH_SIZE, PATCH_SIZE);
     } else {
-      ctx.drawImage(image, 0, 0, PATCH_SIZE, PATCH_SIZE);
+      ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, 0, 0, PATCH_SIZE, PATCH_SIZE);
     }
     const pixels = ctx.getImageData(0, 0, PATCH_SIZE, PATCH_SIZE).data;
     const gray = new Float32Array(PATCH_SIZE * PATCH_SIZE);
@@ -74,17 +81,23 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
     image.onerror = () => resolve(null);
     image.src = reference.imageUrl;
   });
+  if (referenceCache.size >= 256) {
+    const oldestKey = referenceCache.keys().next().value;
+    if (oldestKey) referenceCache.delete(oldestKey);
+  }
   referenceCache.set(cacheKey, promise);
   return promise;
 }
 
 interface RoiFrameGeometry {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
   centerX: number;
   centerY: number;
+  width: number;
+  height: number;
+  rotationRad: number;
+  cos: number;
+  sin: number;
+  bounds: { left: number; top: number; right: number; bottom: number };
 }
 
 function mapRoiToFrame(
@@ -94,10 +107,20 @@ function mapRoiToFrame(
   masterWidth: number,
   masterHeight: number
 ): RoiFrameGeometry | null {
-  if (!alignment.success || masterWidth <= 0 || masterHeight <= 0 ||
-      !Number.isFinite(alignment.scale) || alignment.scale <= 0) return null;
+  if (!alignment.success || frame.width < 2 || frame.height < 2 ||
+      !Number.isFinite(masterWidth) || !Number.isFinite(masterHeight) ||
+      masterWidth <= 0 || masterHeight <= 0 ||
+      !Number.isFinite(alignment.scale) || alignment.scale <= 0 ||
+      !Number.isFinite(alignment.rotationDeg) ||
+      !Number.isFinite(alignment.translationX) || !Number.isFinite(alignment.translationY)) return null;
 
-  // Match the contain/letterbox coordinate mapping used by AlignmentEngine.
+  const roiWidthNorm = roi.width ?? roi.radius * 2;
+  const roiHeightNorm = roi.height ?? roi.radius * 2;
+  if (![roi.x, roi.y, roiWidthNorm, roiHeightNorm].every(Number.isFinite) ||
+      roiWidthNorm <= 0 || roiHeightNorm <= 0) return null;
+
+  // The master is contained (not stretched) in the camera frame. The same
+  // coordinate convention is used by AlignmentEngine.mapMasterPointToFrame.
   const containScale = Math.min(frame.width / masterWidth, frame.height / masterHeight);
   const renderedWidth = masterWidth * containScale;
   const renderedHeight = masterHeight * containScale;
@@ -105,106 +128,114 @@ function mapRoiToFrame(
   const offsetY = (frame.height - renderedHeight) / 2;
   const sourceX = offsetX + roi.x * renderedWidth;
   const sourceY = offsetY + roi.y * renderedHeight;
-  const radians = (alignment.rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(radians);
-  const sin = Math.sin(radians);
+
+  const rotationRad = alignment.rotationDeg * Math.PI / 180;
+  const cos = Math.cos(rotationRad);
+  const sin = Math.sin(rotationRad);
   const centerX = alignment.scale * (cos * sourceX - sin * sourceY) + alignment.translationX;
   const centerY = alignment.scale * (sin * sourceX + cos * sourceY) + alignment.translationY;
-
-  const roiWidth = Math.max(0.02, Math.min(1, roi.width ?? roi.radius * 2)) * renderedWidth * alignment.scale;
-  const roiHeight = Math.max(0.02, Math.min(1, roi.height ?? roi.radius * 2)) * renderedHeight * alignment.scale;
-  // Enclose the rotated rectangle in a frame-aligned crop.
-  const width = Math.abs(cos) * roiWidth + Math.abs(sin) * roiHeight;
-  const height = Math.abs(sin) * roiWidth + Math.abs(cos) * roiHeight;
-  const left = Math.round(centerX - width / 2);
-  const top = Math.round(centerY - height / 2);
-  const cropWidth = Math.round(width);
-  const cropHeight = Math.round(height);
-  if (cropWidth < 2 || cropHeight < 2 || left < 0 || top < 0 ||
-      left + cropWidth > frame.width || top + cropHeight > frame.height) return null;
-  return { left, top, width: cropWidth, height: cropHeight, centerX, centerY };
+  const width = roiWidthNorm * renderedWidth * alignment.scale;
+  const height = roiHeightNorm * renderedHeight * alignment.scale;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const corners = [
+    [-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH],
+  ].map(([x, y]) => ({
+    x: centerX + cos * x - sin * y,
+    y: centerY + sin * x + cos * y,
+  }));
+  const bounds = {
+    left: Math.min(...corners.map((p) => p.x)),
+    top: Math.min(...corners.map((p) => p.y)),
+    right: Math.max(...corners.map((p) => p.x)),
+    bottom: Math.max(...corners.map((p) => p.y)),
+  };
+  if (bounds.left < 0 || bounds.top < 0 || bounds.right >= frame.width ||
+      bounds.bottom >= frame.height || width < 2 || height < 2) return null;
+  return { centerX, centerY, width, height, rotationRad, cos, sin, bounds };
 }
 
-function currentRoiPatch(
-  frame: GrayscaleImage,
-  colorFrame: ImageData | null,
-  geometry: RoiFrameGeometry
-): Float32Array {
-  const gray = new Float32Array(PATCH_SIZE * PATCH_SIZE);
-  for (let py = 0; py < PATCH_SIZE; py++) {
-    const sourceY = geometry.top + Math.min(geometry.height - 1, Math.floor((py / PATCH_SIZE) * geometry.height));
-    for (let px = 0; px < PATCH_SIZE; px++) {
-      const sourceX = geometry.left + Math.min(geometry.width - 1, Math.floor((px / PATCH_SIZE) * geometry.width));
-      const index = py * PATCH_SIZE + px;
-      if (colorFrame && colorFrame.width === frame.width && colorFrame.height === frame.height) {
-        const i = (sourceY * colorFrame.width + sourceX) * 4;
-        gray[index] = colorFrame.data[i] * 0.299 + colorFrame.data[i + 1] * 0.587 + colorFrame.data[i + 2] * 0.114;
-      } else {
-        gray[index] = frame.data[sourceY * frame.width + sourceX] || 0;
-      }
-    }
-  }
-  return gray;
+/**
+ * Rectifies the live camera ROI back into master coordinates using the
+ * inverse of the measured scale/rotation transform.
+ */
+function currentRoiPatch(frame: GrayscaleImage, geometry: RoiFrameGeometry): Float32Array | null {
+  return rectifyPatch(
+    frame.data, frame.width, frame.height,
+    geometry.centerX, geometry.centerY,
+    geometry.width, geometry.height,
+    geometry.cos, geometry.sin,
+    PATCH_SIZE
+  );
 }
 
-function compareEdgeShape(reference: Float32Array, current: Float32Array): number {
-  let magnitudeError = 0;
-  let orientationError = 0;
-  let orientationWeight = 0;
-  let count = 0;
-
-  // Compare local gradient magnitude and direction. This gives the reference
-  // matcher a shape/edge signal instead of relying only on gray-level pixels.
-  for (let y = 1; y < PATCH_SIZE - 1; y++) {
-    for (let x = 1; x < PATCH_SIZE - 1; x++) {
-      const i = y * PATCH_SIZE + x;
-      const rgx = reference[i + 1] - reference[i - 1];
-      const rgy = reference[i + PATCH_SIZE] - reference[i - PATCH_SIZE];
-      const cgx = current[i + 1] - current[i - 1];
-      const cgy = current[i + PATCH_SIZE] - current[i - PATCH_SIZE];
-      const rm = Math.hypot(rgx, rgy);
-      const cm = Math.hypot(cgx, cgy);
-      magnitudeError += Math.abs(rm - cm) / 1020;
-      const weight = Math.min(rm, cm);
-      if (weight > 12) {
-        const cosine = (rgx * cgx + rgy * cgy) / (rm * cm + 1e-6);
-        orientationError += (1 - Math.max(-1, Math.min(1, cosine))) * 0.5 * weight;
-        orientationWeight += weight;
-      }
-      count++;
-    }
-  }
-
-  const magnitudeSimilarity = 1 - Math.min(1, magnitudeError / Math.max(1, count));
-  const orientationSimilarity = orientationWeight > 0
-    ? 1 - Math.min(1, orientationError / orientationWeight)
-    : magnitudeSimilarity;
-  return Math.max(0, Math.min(1, magnitudeSimilarity * 0.45 + orientationSimilarity * 0.55));
-}
-
-function comparePatches(reference: Float32Array, current: Float32Array, mode: InspectionROI['comparisonMode'] = 'BALANCED'): number {
-  const referenceStructure = normalizePatch(reference);
-  const currentStructure = normalizePatch(current);
-  let structuralError = 0;
+function comparePatches(
+  reference: Float32Array,
+  current: Float32Array,
+  roi: InspectionROI
+): { score: number; shapeScore: number; referenceShape: RoiShapeDescriptor; currentShape: RoiShapeDescriptor } {
+  const referenceShape = describePatch(reference, PATCH_SIZE, roi.expectedPolarity || 'contrast');
+  const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
+  const refStructure = normalizePatch(reference);
+  const curStructure = normalizePatch(current);
+  let structureError = 0;
   let intensityError = 0;
   for (let i = 0; i < reference.length; i++) {
-    structuralError += Math.abs(referenceStructure[i] - currentStructure[i]);
+    structureError += Math.abs(refStructure[i] - curStructure[i]);
     intensityError += Math.abs(reference[i] - current[i]) / 255;
   }
   const count = Math.max(1, reference.length);
-  const structureDifference = structuralError / count / 2;
+  const structureDifference = structureError / count / 2;
   const brightnessDifference = intensityError / count;
-  const combinedDifference = mode === 'STRUCTURE_FIRST'
+  const mode = roi.comparisonMode || 'BALANCED';
+  const pixelDifference = mode === 'STRUCTURE_FIRST'
     ? structureDifference * 0.92 + brightnessDifference * 0.08
     : mode === 'INTENSITY_FIRST'
       ? structureDifference * 0.25 + brightnessDifference * 0.75
       : structureDifference * 0.75 + brightnessDifference * 0.25;
-  const pixelSimilarity = Math.max(0, Math.min(1, 1 - combinedDifference));
-  const shapeSimilarity = compareEdgeShape(reference, current);
-  // Retain the existing comparison modes while adding an explicit edge-shape
-  // component so a missing/silhouette-changed object is not judged by brightness alone.
-  const shapeWeight = mode === 'INTENSITY_FIRST' ? 0.25 : 0.4;
-  return Math.max(0, Math.min(1, pixelSimilarity * (1 - shapeWeight) + shapeSimilarity * shapeWeight));
+  const pixelSimilarity = Math.max(0, Math.min(1, 1 - pixelDifference));
+  const shapeScore = compareDescriptors(referenceShape, currentShape);
+  // Spatial shape features receive greater weight than raw pixel brightness.
+  const score = Math.max(0, Math.min(1, pixelSimilarity * 0.35 + shapeScore * 0.65));
+  return { score, shapeScore, referenceShape, currentShape };
+}
+
+function uncertainResult(
+  roi: InspectionROI,
+  geometry: RoiFrameGeometry | null,
+  reason: string,
+  frameWidth: number,
+  frameHeight: number,
+  shape?: RoiShapeDescriptor
+): ROIInspectionResult {
+  const evidence = !shape || shape.presenceConfidence < 0.5
+    ? 'UNCERTAIN'
+    : shape.present ? 'PRESENT' : 'ABSENT';
+  let actualDetectedPosition: { x: number; y: number } | null = null;
+  if (geometry && shape?.present) {
+    const localX = (shape.centroidX - 0.5) * geometry.width;
+    const localY = (shape.centroidY - 0.5) * geometry.height;
+    actualDetectedPosition = {
+      x: (geometry.centerX + geometry.cos * localX - geometry.sin * localY) / frameWidth,
+      y: (geometry.centerY + geometry.sin * localX + geometry.cos * localY) / frameHeight,
+    };
+  }
+  return {
+    roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+    masterPosition: { x: roi.x, y: roi.y },
+    expectedTransformedPosition: geometry
+      ? { x: geometry.centerX / frameWidth, y: geometry.centerY / frameHeight }
+      : { x: roi.x, y: roi.y },
+    actualDetectedPosition,
+    positionOffsetPx: null,
+    positionOffsetMm: null,
+    isWithinTolerance: false,
+    confidence: shape?.presenceConfidence ?? 0,
+    isPresent: shape?.present ?? false,
+    evidence,
+    status: 'WARNING',
+    failureReason: reason,
+  };
 }
 
 export class ROIInspector {
@@ -218,95 +249,268 @@ export class ROIInspector {
     referenceImages: ReferenceImage[] = [],
     colorFrame: ImageData | null = null
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
-    const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl));
-    const okReferences = usableReferences.filter((reference) => (reference.kind || 'OK') === 'OK');
-    const ngReferences = usableReferences.filter((reference) => reference.kind === 'NG');
+    const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
+    const eightPointPresenceMode = isEightPointPresenceCandidate(rois);
+    // Keep the existing signature for callers that still supply the RGB frame;
+    // ROI feature extraction uses the already-normalized grayscale frame.
+    void colorFrame;
 
     for (const roi of rois) {
       const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
-      const current = geometry ? currentRoiPatch(frame, colorFrame, geometry) : null;
-      if (!geometry || !current || okReferences.length === 0 || ngReferences.length === 0) {
-        results.push({
-          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
-          masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: geometry
-            ? { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height }
-            : { x: roi.x, y: roi.y },
-          actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
-          isWithinTolerance: false, confidence: 0, isPresent: false,
-          evidence: 'UNCERTAIN', status: 'WARNING',
-          failureReason: !alignment.success
-            ? (alignment.errorMessage || 'Alignment was not verified')
-            : !geometry
-              ? `${roi.name}: transformed ROI crop is outside the camera frame`
-              : !current
-                ? `${roi.name}: live ROI crop is unavailable`
-                : 'Both OK and NG reference images are required for classification',
-        });
+      if (!geometry) {
+        results.push(uncertainResult(roi, null, !alignment.success
+          ? (alignment.errorMessage || 'Alignment was not verified')
+          : `${roi.name}: transformed ROI is outside the camera frame or has invalid geometry`, frame.width, frame.height));
         continue;
       }
+      const current = currentRoiPatch(frame, geometry);
+      if (!current) {
+        results.push(uncertainResult(roi, geometry, `${roi.name}: rectified ROI samples fall outside the camera frame`, frame.width, frame.height));
+        continue;
+      }
+      const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
+      const expectedPresence = roi.expectedObjectPresence !== false;
+      const presenceThreshold = currentShape.present && roi.objectType === 'screw'
+        ? Math.max(0.5, Math.min(0.98, tolerance.minScrewConfidence))
+        : 0.5;
+      const hasPresenceEvidence = currentShape.presenceConfidence >= presenceThreshold;
+      const expectedFramePosition = { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height };
+      const detectedLocalX = currentShape.centroidX - 0.5;
+      const detectedLocalY = currentShape.centroidY - 0.5;
+      const detectedFrameX = geometry.centerX + geometry.cos * detectedLocalX * geometry.width - geometry.sin * detectedLocalY * geometry.height;
+      const detectedFrameY = geometry.centerY + geometry.sin * detectedLocalX * geometry.width + geometry.cos * detectedLocalY * geometry.height;
+      const actualDetectedPosition = currentShape.present
+        ? { x: detectedFrameX / frame.width, y: detectedFrameY / frame.height }
+        : null;
 
+      // Validate reference evidence before using live absence/presence to make a
+      // product judgement. A broken Master OK crop must produce WARNING/INVALID,
+      // not a false product NG or an accidental OK.
       const comparisons = await Promise.all(usableReferences.map(async (reference) => {
         const patch = await loadReference(reference, roi);
-        return patch ? {
-          reference,
-          similarity: comparePatches(patch, current, roi.comparisonMode),
-        } : null;
+        if (!patch) return null;
+        const compared = comparePatches(patch, current, roi);
+        return { reference, ...compared };
       }));
-      const validComparisons = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
-      const okMatches = validComparisons.filter((item) => (item.reference.kind || 'OK') === 'OK');
-      const ngMatches = validComparisons.filter((item) => item.reference.kind === 'NG');
-      if (okMatches.length === 0 || ngMatches.length === 0) {
+      const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
+      const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
+      const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
+      if (allOkMatches.length === 0 || (!eightPointPresenceMode && ngMatches.length === 0)) {
+        results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
+        continue;
+      }
+      // Positive Master references must represent the configured expected state.
+      const okMatches = expectedPresence
+        ? allOkMatches.filter((item) => item.referenceShape.present)
+        : allOkMatches.filter((item) => !item.referenceShape.present);
+      if (okMatches.length === 0) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: Master OK reference does not show the configured expected object state`,
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
+
+      const bestOk = okMatches.reduce((best, item) => item.score > best.score ? item : best);
+      const bestNg = ngMatches.length > 0
+        ? ngMatches.reduce((best, item) => item.score > best.score ? item : best)
+        : null;
+      const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
+      const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
+
+      if (!hasPresenceEvidence) {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height },
-          actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
-          isWithinTolerance: false, confidence: 0, isPresent: false,
-          evidence: 'UNCERTAIN', status: 'WARNING',
-          failureReason: `${roi.name}: one or more OK/NG reference crops could not be read`,
+          expectedTransformedPosition: expectedFramePosition,
+          actualDetectedPosition,
+          positionOffsetPx: null, positionOffsetMm: null,
+          isWithinTolerance: false, confidence: currentShape.presenceConfidence,
+          isPresent: currentShape.present, evidence: 'UNCERTAIN', status: 'WARNING',
+          failureReason: `${roi.name}: foreground evidence is too weak to confirm object presence or absence`,
         });
         continue;
       }
 
-      const bestOk = okMatches.reduce((best, item) => item.similarity > best.similarity ? item : best);
-      const bestNg = ngMatches.reduce((best, item) => item.similarity > best.similarity ? item : best);
-      const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
-      const okConfirmed = bestOk.similarity >= threshold && bestOk.similarity > bestNg.similarity;
-      const ngConfirmed = bestNg.similarity >= threshold && bestNg.similarity > bestOk.similarity;
-      const bestSimilarity = Math.max(bestOk.similarity, bestNg.similarity);
+      if (expectedPresence && !currentShape.present) {
+        // Do not call a low-contrast/blurred object "missing" from presence
+        // segmentation alone. Require the live crop to match a labelled NG
+        // reference whose ROI explicitly shows the object absent.
+        const absentNgMatches = ngMatches.filter((item) => !item.referenceShape.present);
+        const bestAbsentNg = absentNgMatches.length > 0
+          ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
+          : null;
+        const missingConfirmed = eightPointPresenceMode
+          ? currentShape.presenceConfidence >= Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)) &&
+            bestOk.score < Math.min(0.25, threshold - classMargin)
+          : Boolean(bestAbsentNg && confirmsMissingObject(
+            currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
+          ));
+        results.push({
+          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+          masterPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: expectedFramePosition,
+          actualDetectedPosition: null,
+          positionOffsetPx: null, positionOffsetMm: null,
+          isWithinTolerance: false,
+          confidence: missingConfirmed && bestAbsentNg ? Math.round(bestAbsentNg.score * 100) / 100 : currentShape.presenceConfidence,
+          isPresent: false,
+          evidence: missingConfirmed ? 'ABSENT' : 'UNCERTAIN',
+          status: missingConfirmed ? 'FAIL' : 'WARNING',
+          failureReason: missingConfirmed
+            ? eightPointPresenceMode
+              ? `${roi.name}: screw absence confirmed by clear background evidence against the positive Master`
+              : `${roi.name}: missing ${roi.objectType} confirmed by NG reference ${bestAbsentNg?.reference.label}`
+            : eightPointPresenceMode
+              ? `${roi.name}: absence evidence is not strong enough to confirm a missing screw`
+              : `${roi.name}: object presence could not be confirmed and no matching missing-object NG reference proved absence`,
+        });
+        continue;
+      }
 
-      if (okConfirmed) matchedRoiCount++;
-      const uncertain = !okConfirmed && !ngConfirmed;
-      const status = okConfirmed ? 'PASS' : ngConfirmed ? 'FAIL' : 'WARNING';
-      const reason = okConfirmed
-        ? undefined
-        : ngConfirmed
-          ? `${roi.name}: matched approved NG reference (${Math.round(bestNg.similarity * 100)}%; ${bestNg.reference.label})`
-          : `${roi.name}: neither OK nor NG reference met the ${Math.round(threshold * 100)}% confidence threshold (OK ${Math.round(bestOk.similarity * 100)}%, NG ${Math.round(bestNg.similarity * 100)}%); result requires review`;
+      if (!expectedPresence && currentShape.present) {
+        results.push({
+          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+          masterPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: expectedFramePosition,
+          actualDetectedPosition,
+          positionOffsetPx: null, positionOffsetMm: null,
+          isWithinTolerance: false, confidence: currentShape.presenceConfidence,
+          isPresent: true, evidence: 'PRESENT', status: 'FAIL',
+          failureReason: `${roi.name}: unexpected ${roi.objectType} detected in an ROI configured to be empty`,
+        });
+        continue;
+      }
 
+      if (!expectedPresence && !currentShape.present) {
+        matchedRoiCount++;
+        results.push({
+          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+          masterPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: expectedFramePosition,
+          actualDetectedPosition: null,
+          positionOffsetPx: null, positionOffsetMm: null,
+          isWithinTolerance: true, confidence: currentShape.presenceConfidence,
+          isPresent: false, evidence: 'ABSENT', status: 'PASS',
+        });
+        continue;
+      }
+
+      // In the eight-screw profile the requested judgement is physical presence,
+      // not full OK/NG quality classification. A present patch must still match
+      // the positive screw Master strongly enough to reject unrelated texture.
+      if (eightPointPresenceMode) {
+        if (bestOk.score < threshold) {
+          results.push(uncertainResult(
+            roi, geometry, `${roi.name}: screw-like foreground was detected but did not match the positive screw Master`,
+            frame.width, frame.height, currentShape
+          ));
+        } else {
+          matchedRoiCount++;
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: true, confidence: Math.round(bestOk.score * 100) / 100,
+            isPresent: true, evidence: 'PRESENT', status: 'PASS',
+          });
+        }
+        continue;
+      }
+
+      if (!bestNg) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: no usable NG reference is available for generic ROI classification`,
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
+
+      const margin = bestOk.score - bestNg.score;
+      const okConfirmed = bestOk.score >= threshold && margin >= classMargin;
+      const ngConfirmed = bestNg.score >= threshold && margin <= -classMargin;
+      const bestSimilarity = Math.max(bestOk.score, bestNg.score);
+
+      // Position is measured against the best OK object centroid in rectified ROI space.
+      const referenceCentroid = bestOk.referenceShape;
+      const normalizedPositionOffset = Math.hypot(
+        currentShape.centroidX - referenceCentroid.centroidX,
+        currentShape.centroidY - referenceCentroid.centroidY
+      );
+      const positionTolerance = Math.max(0.005, Math.min(0.5, roi.toleranceRadius || 0.05));
+      const positionOffsetPx = Math.hypot(
+        (currentShape.centroidX - referenceCentroid.centroidX) * geometry.width,
+        (currentShape.centroidY - referenceCentroid.centroidY) * geometry.height
+      );
+      const sizeTolerance = Math.max(0.05, Math.min(1, roi.sizeToleranceRatio ?? 0.35));
+      const shapeTolerance = Math.max(0.05, Math.min(0.4, roi.shapeToleranceRatio ?? 0.10));
+      const shapeOk = contourWithinTolerance(currentShape, referenceCentroid, shapeTolerance);
+      const relativeSizeChange = Math.abs(currentShape.areaRatio - referenceCentroid.areaRatio) /
+        Math.max(referenceCentroid.areaRatio, 0.001);
+      const globalPixelTolerance = Number.isFinite(tolerance.maxPositionOffsetPx)
+        ? Math.max(0, tolerance.maxPositionOffsetPx)
+        : 0;
+      const positionOk = normalizedPositionOffset <= positionTolerance && positionOffsetPx <= globalPixelTolerance;
+      const sizeOk = relativeSizeChange <= sizeTolerance;
+
+      let status: ROIInspectionResult['status'] = 'WARNING';
+      let reason: string | undefined;
+      if (!positionOk) {
+        status = 'FAIL';
+        reason = `${roi.name}: object position shifted ${(normalizedPositionOffset * 100).toFixed(1)}% of ROI (limit ${(positionTolerance * 100).toFixed(1)}%)`;
+      } else if (!sizeOk) {
+        status = 'FAIL';
+        reason = `${roi.name}: object foreground size changed ${(relativeSizeChange * 100).toFixed(1)}% (limit ${(sizeTolerance * 100).toFixed(1)}%)`;
+      } else if (!shapeOk) {
+        status = 'FAIL';
+        reason = `${roi.name}: object contour/shape geometry differs from the OK Master beyond the configured tolerance (${(shapeTolerance * 100).toFixed(0)}%)`;
+      } else if (ngConfirmed) {
+        status = 'FAIL';
+        reason = `${roi.name}: matched approved NG reference (${Math.round(bestNg.score * 100)}%; ${bestNg.reference.label})`;
+      } else if (okConfirmed) {
+        status = 'PASS';
+      } else {
+        reason = `${roi.name}: OK/NG references are not sufficiently separated (OK ${Math.round(bestOk.score * 100)}%, NG ${Math.round(bestNg.score * 100)}%, required margin ${Math.round(classMargin * 100)}%)`;
+      }
+
+      if (status === 'PASS') matchedRoiCount++;
       results.push({
         roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
         masterPosition: { x: roi.x, y: roi.y },
-        expectedTransformedPosition: { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height },
-        // Patch similarity classifies the crop but does not localize an object center.
-        // Do not fabricate a detected coordinate or zero positional offset.
-        actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
-        isWithinTolerance: okConfirmed,
+        expectedTransformedPosition: expectedFramePosition,
+        actualDetectedPosition,
+        positionOffsetPx,
+        // Physical millimetres cannot be claimed without a calibrated pixel-to-mm scale.
+        positionOffsetMm: null,
+        isWithinTolerance: status === 'PASS',
         confidence: Math.round(bestSimilarity * 100) / 100,
-        isPresent: okConfirmed,
-        evidence: uncertain ? 'UNCERTAIN' : 'PRESENT',
+        isPresent: true,
+        evidence: 'PRESENT',
         status,
         failureReason: reason,
       });
     }
 
-    // Tolerances are enforced by the alignment transform before ROI inspection.
-    // The current ROI matcher does not independently localize object centers.
-    void tolerance;
-    return { roiResults: results, extraObjects: [], matchedRoiCount };
+    // Preserve the Master ROI order as stable P1-P8 identifiers for the operator
+    // overlay and inspection history. The slot order is configured once in Master.
+    const slotIds = eightPointPresenceMode ? getEightPointSlotIds(rois) : null;
+    const finalResults = slotIds
+      ? results.map((result) => ({
+          ...result,
+          inspectionPointId: slotIds.get(result.roiId),
+        }))
+      : results;
+    const finalMatchedRoiCount = finalResults.filter((result) =>
+      result.evidence === 'PRESENT' && result.status === 'PASS' && result.isWithinTolerance
+    ).length;
+
+    // Alignment tolerances are checked by AlignmentEngine. Object position and
+    // relative size tolerances are checked here in the rectified ROI coordinate space.
+    return { roiResults: finalResults, extraObjects: [], matchedRoiCount: finalMatchedRoiCount };
   }
 }
 
