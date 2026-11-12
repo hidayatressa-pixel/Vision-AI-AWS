@@ -75,6 +75,8 @@ export interface InspectionROI {
   minClassMargin?: number;
   /** Allowed relative foreground-area change from the OK reference; defaults to 0.35. */
   sizeToleranceRatio?: number;
+  /** Allowed aspect/circularity/solidity change from the OK contour; defaults to 0.10. */
+  shapeToleranceRatio?: number;
 }
 
 export interface ToleranceConfig {
