@@ -68,14 +68,14 @@ export interface ROIInspectionResult {
   objectType: string;
   masterPosition: Position2D; // Master normalized position
   expectedTransformedPosition: Position2D; // In current frame coordinates (normalized)
-  actualDetectedPosition: Position2D | null; // Detected center
+  actualDetectedPosition: Position2D | null; // Detected foreground centroid in normalized frame coordinates
   positionOffsetPx: number;
   positionOffsetMm: number;
   isWithinTolerance: boolean;
   confidence: number;
-  /** True when the ROI has classifiable reference evidence; not independent object localization. */
+  /** True only when foreground/object evidence was detected in this ROI. */
   isPresent: boolean;
-  /** Evidence classification prevents low-confidence absence from becoming automatic NG. */
+  /** Physical presence evidence; UNCERTAIN must never be promoted to OK or NG. */
   evidence: 'PRESENT' | 'ABSENT' | 'UNCERTAIN';
   status: 'PASS' | 'FAIL' | 'WARNING';
   failureReason?: string;
