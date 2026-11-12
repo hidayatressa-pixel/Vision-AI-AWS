@@ -65,6 +65,8 @@ export interface AlignmentResult {
 export interface ROIInspectionResult {
   roiId: string;
   roiName: string;
+  /** Stable row-major slot ID for eight-point screw inspection. */
+  inspectionPointId?: string;
   objectType: string;
   masterPosition: Position2D; // Master normalized position
   expectedTransformedPosition: Position2D; // In current frame coordinates (normalized)
