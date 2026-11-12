@@ -1,4 +1,5 @@
 import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
+import { isEightPointPresenceCandidate, validateEightPointPresenceLayout } from '../vision/eightPointPresenceEngine';
 
 export interface SetupValidationCheck {
   label: string;
@@ -22,6 +23,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
   const expectedObjectCount = rois.filter((roi) => roi.expectedObjectPresence !== false).length;
+  const eightPointMode = isEightPointPresenceCandidate(rois);
+  const eightPointErrors = validateEightPointPresenceLayout(rois);
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
@@ -107,6 +110,16 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
+    {
+      label: 'Eight-point screw presence layout',
+      valid: !eightPointMode || eightPointErrors.length === 0,
+      detail: !eightPointMode
+        ? 'Not active · standard ROI inspection profile'
+        : eightPointErrors.length === 0
+          ? 'Eight required screw slots · unique and non-overlapping'
+          : eightPointErrors.join(' '),
+      error: eightPointErrors.join(' '),
+    },
     {
       label: 'Alignment',
       valid: anchorsValid,
