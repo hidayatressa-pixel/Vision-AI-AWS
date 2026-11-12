@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describePatch, compareDescriptors, contourWithinTolerance, rectifyPatch } from '../src/vision/roiFeatureCore.js';
+import { describePatch, compareDescriptors, confirmsMissingObject, contourWithinTolerance, rectifyPatch } from '../src/vision/roiFeatureCore.js';
 
 const SIZE = 64;
 function makeBolt({ background = 150, object = 35, centerX = 32, centerY = 32, radius = 12, shaft = true } = {}) {
@@ -33,6 +33,9 @@ assert.equal(ok.present, true, 'bolt reference should be detected');
 assert.equal(missing.present, false, 'uniform missing-object crop should be absent');
 assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should remain similar under brightness shift');
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
+assert.equal(confirmsMissingObject(false, 0.05, 0.98, 0.75, 0.06), true, 'missing bolt should be NG when a matching labelled missing-object reference exists');
+assert.equal(confirmsMissingObject(false, 0.05, 0.20, 0.75, 0.06), false, 'weak absence evidence must remain uncertain');
+assert.equal(confirmsMissingObject(true, 0.90, 0.98, 0.75, 0.06), false, 'a present object must never be labelled missing');
 assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferentLight), 'position shift must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
 const contourScore = compareDescriptors(ok, wrongShape);
@@ -69,7 +72,7 @@ const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
 console.log(JSON.stringify({
-  passed: 12,
+  passed: 15,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
