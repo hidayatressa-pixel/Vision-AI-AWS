@@ -65,6 +65,8 @@ export interface AlignmentResult {
 export interface ROIInspectionResult {
   roiId: string;
   roiName: string;
+  /** Stable slot label assigned by EightPointPresenceEngine (P1..P8). */
+  inspectionPointId?: string;
   objectType: string;
   masterPosition: Position2D; // Master normalized position
   expectedTransformedPosition: Position2D; // In current frame coordinates (normalized)
