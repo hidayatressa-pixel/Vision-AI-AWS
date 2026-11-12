@@ -832,6 +832,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
                         minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
+                        expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35,
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
@@ -961,6 +962,38 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                               <option value="STRUCTURE_FIRST">Structure first</option>
                               <option value="INTENSITY_FIRST">Intensity first</option>
                             </select>
+                          </div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            <span>Polarity:</span>
+                            <select value={roi.expectedPolarity ?? 'contrast'} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const expectedPolarity = event.target.value as NonNullable<InspectionROI['expectedPolarity']>;
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedPolarity } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="contrast">Auto contrast</option>
+                              <option value="bright_on_dark">Bright on dark</option>
+                              <option value="dark_on_bright">Dark on bright</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Position tolerance</span><span>{(((roi.toleranceRadius ?? 0.05) * 100)).toFixed(1)}% ROI</span></div>
+                            <input type="range" min="0.005" max="0.25" step="0.005" value={roi.toleranceRadius ?? 0.05} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const toleranceRadius = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, toleranceRadius } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Size tolerance</span><span>{(((roi.sizeToleranceRatio ?? 0.35) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.05" max="1" step="0.05" value={roi.sizeToleranceRatio ?? 0.35} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const sizeToleranceRatio = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, sizeToleranceRatio } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>OK/NG separation margin</span><span>{(((roi.minClassMargin ?? 0.06) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.02" max="0.3" step="0.01" value={roi.minClassMargin ?? 0.06} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const minClassMargin = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, minClassMargin } : item) }));
+                            }} className="w-full accent-cyan-500" />
                           </div>
                           <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length} OK / {editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length} NG</div>
                         </div>
