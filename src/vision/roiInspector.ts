@@ -9,7 +9,8 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
-import { compareDescriptors, describePatch, RoiShapeDescriptor } from './roiFeatureCore.js';
+import { compareDescriptors, describePatch } from './roiFeatureCore.js';
+import type { RoiShapeDescriptor } from './roiFeatureCore.js';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -217,21 +218,34 @@ function uncertainResult(
   geometry: RoiFrameGeometry | null,
   reason: string,
   frameWidth: number,
-  frameHeight: number
+  frameHeight: number,
+  shape?: RoiShapeDescriptor
 ): ROIInspectionResult {
+  const evidence = !shape || shape.presenceConfidence < 0.5
+    ? 'UNCERTAIN'
+    : shape.present ? 'PRESENT' : 'ABSENT';
+  let actualDetectedPosition: { x: number; y: number } | null = null;
+  if (geometry && shape?.present) {
+    const localX = (shape.centroidX - 0.5) * geometry.width;
+    const localY = (shape.centroidY - 0.5) * geometry.height;
+    actualDetectedPosition = {
+      x: (geometry.centerX + geometry.cos * localX - geometry.sin * localY) / frameWidth,
+      y: (geometry.centerY + geometry.sin * localX + geometry.cos * localY) / frameHeight,
+    };
+  }
   return {
     roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
     masterPosition: { x: roi.x, y: roi.y },
     expectedTransformedPosition: geometry
       ? { x: geometry.centerX / frameWidth, y: geometry.centerY / frameHeight }
       : { x: roi.x, y: roi.y },
-    actualDetectedPosition: null,
+    actualDetectedPosition,
     positionOffsetPx: null,
     positionOffsetMm: null,
     isWithinTolerance: false,
-    confidence: 0,
-    isPresent: false,
-    evidence: 'UNCERTAIN',
+    confidence: shape?.presenceConfidence ?? 0,
+    isPresent: shape?.present ?? false,
+    evidence,
     status: 'WARNING',
     failureReason: reason,
   };
@@ -262,15 +276,17 @@ export class ROIInspector {
           : `${roi.name}: transformed ROI is outside the camera frame or has invalid geometry`, frame.width, frame.height));
         continue;
       }
-      if (okReferences.length === 0 || ngReferences.length === 0) {
-        results.push(uncertainResult(roi, geometry, 'Both OK and NG reference images are required for classification', frame.width, frame.height));
-        continue;
-      }
-
       const current = currentRoiPatch(frame, colorFrame, geometry);
       const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
       const expectedPresence = roi.expectedObjectPresence !== false;
       const hasPresenceEvidence = currentShape.presenceConfidence >= 0.5;
+      if (okReferences.length === 0 || ngReferences.length === 0) {
+        results.push(uncertainResult(
+          roi, geometry, 'Both OK and NG reference images are required for classification',
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
 
       const expectedFramePosition = { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height };
       const detectedLocalX = currentShape.centroidX - 0.5;
@@ -347,7 +363,7 @@ export class ROIInspector {
       const okMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
       if (okMatches.length === 0 || ngMatches.length === 0) {
-        results.push(uncertainResult(roi, geometry, `${roi.name}: one or more OK/NG reference crops could not be decoded`, frame.width, frame.height));
+        results.push(uncertainResult(roi, geometry, `${roi.name}: one or more OK/NG reference crops could not be decoded`, frame.width, frame.height, currentShape));
         continue;
       }
 
