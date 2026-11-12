@@ -140,10 +140,10 @@ export function applyEightPointPresence(rois, roiResults, frameWidth, frameHeigh
         frameWidth,
         frameHeight
       );
-      const firstWidth = (rois[i].width ?? rois[i].radius * 2) * frameWidth;
-      const firstHeight = (rois[i].height ?? rois[i].radius * 2) * frameHeight;
-      const secondWidth = (rois[j].width ?? rois[j].radius * 2) * frameWidth;
-      const secondHeight = (rois[j].height ?? rois[j].radius * 2) * frameHeight;
+      const firstWidth = (ordered[i].width ?? ordered[i].radius * 2) * frameWidth;
+      const firstHeight = (ordered[i].height ?? ordered[i].radius * 2) * frameHeight;
+      const secondWidth = (ordered[j].width ?? ordered[j].radius * 2) * frameWidth;
+      const secondHeight = (ordered[j].height ?? ordered[j].radius * 2) * frameHeight;
       const mergeRadiusPx = Math.max(4, Math.min(firstWidth, firstHeight, secondWidth, secondHeight) * 0.15);
 
       // Only flag a collision when expected slots are distinct but detections
