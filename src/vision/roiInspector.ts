@@ -187,7 +187,7 @@ export class ROIInspector {
     for (const roi of rois) {
       const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
       const current = geometry ? currentRoiPatch(frame, colorFrame, geometry) : null;
-      if (!current || okReferences.length === 0 || ngReferences.length === 0) {
+      if (!geometry || !current || okReferences.length === 0 || ngReferences.length === 0) {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
