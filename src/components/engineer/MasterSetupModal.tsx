@@ -509,7 +509,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
-      anchors: [],
+      // Preserve engineer-configured alignment anchors; saving a master must never erase calibration data.
+      anchors: editedRevision.anchors || [],
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
