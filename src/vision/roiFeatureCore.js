@@ -27,7 +27,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
     queue[tail++]=seed; visited[seed]=1;
     while(head<tail) {
       const index=queue[head++],x=index%size,y=Math.floor(index/size);
-      area++;sumX+=x;sumY+=y;minX=Math.min(minX,x);minY=Math.min(minY,y);maxX=Math.max(maxX,x);maxY=Math.max(maxY,y);
+      area++;sumX+=x;sumY+=y;sumContrast+=Math.abs(values[index]-median);minX=Math.min(minX,x);minY=Math.min(minY,y);maxX=Math.max(maxX,x);maxY=Math.max(maxY,y);
       for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
         const nx=x+dx,ny=y+dy;
         if(nx<0||ny<0||nx>=size||ny>=size||!mask[ny*size+nx]) perimeter++;
@@ -40,10 +40,10 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
         if(mask[ni]&&!visited[ni]){visited[ni]=1;queue[tail++]=ni;}
       }
     }
-    if(!largest||area>largest.area) largest={area,minX,minY,maxX,maxY,sumX,sumY,perimeter};
+    if(!largest||area>largest.area) largest={area,minX,minY,maxX,maxY,sumX,sumY,sumContrast,perimeter};
   }
   const areaRatio=largest?largest.area/(size*size):0;
-  const contrastStrength=mad;
+  const contrastStrength=largest?largest.sumContrast/largest.area:0;
   const plausibleArea=areaRatio>=0.0015&&areaRatio<=0.62;
   const present=Boolean(largest&&plausibleArea&&contrastStrength>=2);
   const bboxWidth=largest?largest.maxX-largest.minX+1:0;
