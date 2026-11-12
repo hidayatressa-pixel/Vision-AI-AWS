@@ -1,16 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const tsModule = require('typescript');
-const ts = tsModule.default ?? tsModule;
-
-// Load the actual TypeScript engine in Node 22 without adding a test-runner dependency.
-const source = await readFile(new URL('../src/vision/eightPointPresenceEngine.ts', import.meta.url), 'utf8');
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: 99, target: 9 }, // ESNext and ES2022 enum values
-}).outputText;
-const engine = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+import * as engine from '../src/vision/eightPointPresenceEngine.ts';
 
 const slotCenters = [
   [0.15, 0.18], [0.38, 0.18], [0.62, 0.18], [0.85, 0.18],
