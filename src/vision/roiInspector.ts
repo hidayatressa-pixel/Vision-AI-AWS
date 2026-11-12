@@ -9,7 +9,7 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
-import { compareDescriptors, describePatch } from './roiFeatureCore.js';
+import { compareDescriptors, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
 
 const PATCH_SIZE = 64;
@@ -150,36 +150,18 @@ function mapRoiToFrame(
   return { centerX, centerY, width, height, rotationRad, cos, sin, bounds };
 }
 
-function sampleGray(frame: GrayscaleImage, colorFrame: ImageData | null, x: number, y: number): number {
-  const sx = Math.max(0, Math.min(frame.width - 1, Math.round(x)));
-  const sy = Math.max(0, Math.min(frame.height - 1, Math.round(y)));
-  if (colorFrame && colorFrame.width === frame.width && colorFrame.height === frame.height) {
-    const i = (sy * colorFrame.width + sx) * 4;
-    return colorFrame.data[i] * 0.299 + colorFrame.data[i + 1] * 0.587 + colorFrame.data[i + 2] * 0.114;
-  }
-  return frame.data[sy * frame.width + sx];
-}
-
 /**
- * Rectifies the rotated/scaled camera crop back into master ROI coordinates.
- * This avoids comparing a rotated camera crop against an unrotated reference.
+ * Rectifies the live camera ROI back into master coordinates using the
+ * inverse of the measured scale/rotation transform.
  */
-function currentRoiPatch(
-  frame: GrayscaleImage,
-  colorFrame: ImageData | null,
-  geometry: RoiFrameGeometry
-): Float32Array {
-  const patch = new Float32Array(PATCH_SIZE * PATCH_SIZE);
-  for (let py = 0; py < PATCH_SIZE; py++) {
-    const localY = ((py + 0.5) / PATCH_SIZE - 0.5) * geometry.height;
-    for (let px = 0; px < PATCH_SIZE; px++) {
-      const localX = ((px + 0.5) / PATCH_SIZE - 0.5) * geometry.width;
-      const frameX = geometry.centerX + geometry.cos * localX - geometry.sin * localY;
-      const frameY = geometry.centerY + geometry.sin * localX + geometry.cos * localY;
-      patch[py * PATCH_SIZE + px] = sampleGray(frame, colorFrame, frameX, frameY);
-    }
-  }
-  return patch;
+function currentRoiPatch(frame: GrayscaleImage, geometry: RoiFrameGeometry): Float32Array | null {
+  return rectifyPatch(
+    frame.data, frame.width, frame.height,
+    geometry.centerX, geometry.centerY,
+    geometry.width, geometry.height,
+    geometry.cos, geometry.sin,
+    PATCH_SIZE
+  );
 }
 
 function comparePatches(
@@ -267,6 +249,9 @@ export class ROIInspector {
     const ngReferences = usableReferences.filter((reference) => reference.kind === 'NG');
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
+    // Keep the existing signature for callers that still supply the RGB frame;
+    // ROI feature extraction uses the already-normalized grayscale frame.
+    void colorFrame;
 
     for (const roi of rois) {
       const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
@@ -276,7 +261,11 @@ export class ROIInspector {
           : `${roi.name}: transformed ROI is outside the camera frame or has invalid geometry`, frame.width, frame.height));
         continue;
       }
-      const current = currentRoiPatch(frame, colorFrame, geometry);
+      const current = currentRoiPatch(frame, geometry);
+      if (!current) {
+        results.push(uncertainResult(roi, geometry, `${roi.name}: rectified ROI samples fall outside the camera frame`, frame.width, frame.height));
+        continue;
+      }
       const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
       const expectedPresence = roi.expectedObjectPresence !== false;
       const hasPresenceEvidence = currentShape.presenceConfidence >= 0.5;
