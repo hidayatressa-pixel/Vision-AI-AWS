@@ -16,10 +16,10 @@ No new database field is required. Existing Master revisions remain compatible u
 
 1. Upload the full-view Master image.
 2. Configure exactly eight screw ROIs in the required order: P1–P4 on the first row, P5–P6 on the second row, P7–P8 on the third row.
-3. Configure at least three unique, non-collinear fiducial anchors. Four corner anchors are recommended.
+3. Configure at least three unique, non-collinear fiducial anchors. Four corner anchors are recommended. Set each anchor search radius wide enough to cover the expected whole-workpiece translation, while keeping the search region distinctive enough to avoid matching a neighboring feature.
 4. Configure an approved OK reference image showing all expected screw positions. Each reference must have a valid crop layout for all eight ROIs.
 5. Set `expectedObjectCount` to 8. The setup validator also checks this value.
-6. Keep the ROI rectangles tight enough to isolate the screw head and its immediate seat, but wide enough to tolerate the expected screw-head variation.
+6. Keep the ROI rectangles tight enough to isolate the screw head and its immediate seat, but wide enough to tolerate the expected screw-head variation. The Master Setup dialog provides a 4-2-2 starter preset; move and resize its eight ROIs onto the actual screw centers before saving.
 
 For this profile, NG reference images are optional. Missing screws are decided from strong local absence evidence, not from a requirement to upload a separate NG example for every possible missing-screw combination. Existing NG references may still be retained for compatibility and comparison.
 
