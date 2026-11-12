@@ -86,14 +86,18 @@ export class RuleEngine {
 
       if (!result.isWithinTolerance || result.status === 'FAIL') {
         defects.push({
-          code: result.evidence === 'ABSENT' ? 'MISSING_PART' : 'VISUAL_MISMATCH',
+          code: result.evidence === 'ABSENT'
+            ? 'MISSING_PART'
+            : roi.expectedObjectPresence === false && result.isPresent
+              ? 'EXTRA_OBJECT_DETECTED'
+              : 'VISUAL_MISMATCH',
           roiId: roi.id,
           roiName: roi.name,
           message: result.failureReason || `${roi.name}: visual mismatch`,
           expected: `Similarity ≥ ${Math.round((roi.minConfidence || 0.75) * 100)}%`,
           actual: `${Math.round(result.confidence * 100)}% similarity`,
         });
-      } else {
+      } else if (roi.expectedObjectPresence !== false) {
         passedCount++;
       }
     }
