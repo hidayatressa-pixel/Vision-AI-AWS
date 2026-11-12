@@ -8,7 +8,7 @@ const ts = tsModule.default ?? tsModule;
 // Load the actual TypeScript engine in Node 22 without adding a test-runner dependency.
 const source = await readFile(new URL('../src/vision/eightPointPresenceEngine.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  compilerOptions: { module: 99, target: 9 }, // ESNext and ES2022 enum values
 }).outputText;
 const engine = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 
