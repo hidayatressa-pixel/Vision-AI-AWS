@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { isEightPointPresenceProfile, evaluateEightPointPresence } from '../src/vision/eightPointPresenceCore.js';
+import { isEightPointPresenceProfile, evaluateEightPointPresence, confirmsEightPointAbsence } from '../src/vision/eightPointPresenceCore.js';
+import { describePatch } from '../src/vision/roiFeatureCore.js';
 
 const rois = Array.from({ length: 8 }, (_, index) => ({
   id: `bolt-${index + 1}`,
@@ -22,6 +23,9 @@ const result = (roi, evidence = 'PRESENT', status = 'PASS') => ({
   actualDetectedPosition: evidence === 'PRESENT' ? { x: roi.x, y: roi.y } : null,
 });
 
+const emptySlot = describePatch(new Float32Array(64 * 64).fill(150), 64, 'contrast');
+assert.equal(confirmsEightPointAbsence(emptySlot), true, 'high-confidence empty slot should confirm a missing screw');
+assert.equal(confirmsEightPointAbsence({ present: false, presenceConfidence: 0.35, areaRatio: 0.02 }), false, 'weak/blurred evidence must remain uncertain');
 assert.equal(isEightPointPresenceProfile(rois), true);
 assert.equal(isEightPointPresenceProfile(rois.slice(0, 7)), false);
 assert.equal(isEightPointPresenceProfile(rois.map((roi, i) => i === 2 ? { ...roi, objectType: 'clip' } : roi)), false);
