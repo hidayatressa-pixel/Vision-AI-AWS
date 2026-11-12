@@ -13,7 +13,9 @@ export function rectifyPatch(frameValues, frameWidth, frameHeight, centerX, cent
       const sx = Math.round(centerX + cos * localX - sin * localY);
       const sy = Math.round(centerY + sin * localX + cos * localY);
       if (sx < 0 || sy < 0 || sx >= frameWidth || sy >= frameHeight) return null;
-      output[py * size + px] = frameValues[sy * frameWidth + sx];
+      const value = frameValues[sy * frameWidth + sx];
+      if (!Number.isFinite(value)) return null;
+      output[py * size + px] = value;
     }
   }
   return output;
@@ -37,7 +39,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
     if(contrast>=threshold) mask[y*size+x]=1;
   }
   const visited=new Uint8Array(mask.length), queue=new Int32Array(mask.length);
-  let largest=null;
+  let largest=null,largestPixels=null;
   for(let seed=0;seed<mask.length;seed++) {
     if(!mask[seed]||visited[seed]) continue;
     let head=0,tail=0,minX=size,minY=size,maxX=-1,maxY=-1,sumX=0,sumY=0,sumContrast=0,area=0,perimeter=0;
@@ -57,7 +59,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
         if(mask[ni]&&!visited[ni]){visited[ni]=1;queue[tail++]=ni;}
       }
     }
-    if(!largest||area>largest.area) largest={area,minX,minY,maxX,maxY,sumX,sumY,sumContrast,perimeter};
+    if(!largest||area>largest.area) { largest={area,minX,minY,maxX,maxY,sumX,sumY,sumContrast,perimeter}; largestPixels=queue.slice(0,tail); }
   }
   const areaRatio=largest?largest.area/(size*size):0;
   const contrastStrength=largest?largest.sumContrast/largest.area:0;
@@ -67,7 +69,12 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
   const bboxHeight=largest?largest.maxY-largest.minY+1:0;
   const circularity=largest&&largest.perimeter>0?Math.min(1,4*Math.PI*largest.area/(largest.perimeter*largest.perimeter)):0;
   const solidity=largest&&bboxWidth*bboxHeight>0?largest.area/(bboxWidth*bboxHeight):0;
-  const hog=new Float32Array(128),cellEdges=new Float32Array(16);
+  const hog=new Float32Array(128),cellEdges=new Float32Array(16),componentCells=new Float32Array(16);
+  if(largestPixels) for(const index of largestPixels) {
+    const x=index%size,y=Math.floor(index/size);
+    const cx=Math.min(3,Math.floor(x/(size/4))),cy=Math.min(3,Math.floor(y/(size/4)));
+    componentCells[cy*4+cx]++;
+  }
   let totalEdge=0;
   for(let y=1;y<size-1;y++) for(let x=1;x<size-1;x++) {
     const gx=values[y*size+x+1]-values[y*size+x-1];
@@ -84,7 +91,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
     let norm=0;for(const value of array)norm+=value*value;norm=Math.sqrt(norm);
     if(norm>0)for(let i=0;i<array.length;i++)array[i]/=norm;
   };
-  normalize(hog);normalize(cellEdges);
+  normalize(hog);normalize(cellEdges);normalize(componentCells);
   const presenceConfidence=present
     ?Math.min(1,0.55+Math.min(0.25,areaRatio*2)+Math.min(0.2,contrastStrength/100))
     :(areaRatio<0.003&&contrastStrength<8?0.82:0.35);
@@ -94,7 +101,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
     centroidY:largest?largest.sumY/largest.area/size:0.5,
     bboxWidth:bboxWidth/size,bboxHeight:bboxHeight/size,
     aspectRatio:bboxHeight>0?bboxWidth/bboxHeight:1,
-    circularity,solidity,hog,cellEdges,edgeDensity:totalEdge/(size*size*255)
+    circularity,solidity,hog,cellEdges,componentCells,edgeDensity:totalEdge/(size*size*255)
   };
 }
 function cosineSimilarity(a,b){
@@ -112,11 +119,12 @@ export function compareDescriptors(a,b){
   if(a.present!==b.present)return 0.05;
   if(!a.present&&!b.present)return 0.98;
   const hog=cosineSimilarity(a.hog,b.hog),spatial=cosineSimilarity(a.cellEdges,b.cellEdges);
+  const occupancy=cosineSimilarity(a.componentCells,b.componentCells);
   const size=ratioSimilarity(a.areaRatio,b.areaRatio,0.65);
   const aspect=ratioSimilarity(a.aspectRatio,b.aspectRatio,0.45);
   const circularity=1-Math.min(1,Math.abs(a.circularity-b.circularity));
   const solidity=1-Math.min(1,Math.abs(a.solidity-b.solidity));
   const position=Math.exp(-Math.hypot(a.centroidX-b.centroidX,a.centroidY-b.centroidY)*5);
   const contour=aspect*0.45+circularity*0.25+solidity*0.30;
-  return Math.max(0,Math.min(1,hog*0.30+spatial*0.20+size*0.15+contour*0.20+position*0.15));
+  return Math.max(0,Math.min(1,hog*0.22+spatial*0.15+occupancy*0.25+size*0.15+contour*0.13+position*0.10));
 }
