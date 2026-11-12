@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describePatch, compareDescriptors, rectifyPatch } from '../src/vision/roiFeatureCore.js';
+import { describePatch, compareDescriptors, contourWithinTolerance, rectifyPatch } from '../src/vision/roiFeatureCore.js';
 
 const SIZE = 64;
 function makeBolt({ background = 150, object = 35, centerX = 32, centerY = 32, radius = 12, shaft = true } = {}) {
@@ -36,7 +36,8 @@ assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match th
 assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferentLight), 'position shift must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
 const contourScore = compareDescriptors(ok, wrongShape);
-console.log('CONTOUR_DIAGNOSTIC', JSON.stringify({ score: contourScore, ok: { area: ok.areaRatio, aspect: ok.aspectRatio, circularity: ok.circularity, solidity: ok.solidity }, wrong: { area: wrongShape.areaRatio, aspect: wrongShape.aspectRatio, circularity: wrongShape.circularity, solidity: wrongShape.solidity } }));
+assert.equal(contourWithinTolerance(ok, sameDifferentLight, 0.10), true, 'brightness variation should preserve contour geometry');
+assert.equal(contourWithinTolerance(ok, wrongShape, 0.10), false, 'round object contour must fail the bolt contour tolerance');
 assert.ok(Math.abs(wrongSize.areaRatio - ok.areaRatio) / ok.areaRatio > 0.35, 'size change must exceed the configured default size tolerance');
 
 // Forward-warp a reference crop into a shifted and rotated camera frame,
