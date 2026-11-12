@@ -10,6 +10,7 @@ import {
   ROIInspectionResult,
 } from '../types/inspection';
 import { MasterRevision } from '../types/master';
+import { getMasterValidationChecks } from '../services/setupValidation';
 
 export interface RuleEvaluationResult {
   judgement: JudgementResult;
@@ -33,24 +34,14 @@ export class RuleEngine {
     const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
     const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
     const ngReferences = references.filter((reference) => reference.kind === 'NG');
-    const invalidConfiguration =
-      revision.masterWidth <= 0 ||
-      revision.masterHeight <= 0 ||
-      !revision.masterImageUrl ||
-      expectedCount === 0 ||
-      okReferences.length < 1 ||
-      ngReferences.length < 1;
-    if (invalidConfiguration) {
-      const details = [
-        !revision.masterImageUrl ? 'master image missing' : '',
-        expectedCount === 0 ? 'no rectangular ROI configured' : '',
-        `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)`,
-      ].filter(Boolean).join('; ');
+    const failedMasterChecks = getMasterValidationChecks(revision).filter((check) => !check.valid);
+    if (failedMasterChecks.length > 0) {
+      const details = failedMasterChecks.map((check) => `${check.label}: ${check.error || check.detail}`).join('; ');
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
-        message: 'Multi-reference ROI configuration is incomplete: ' + details,
-        expected: 'At least one rectangle ROI and at least one uploaded OK plus one uploaded NG reference',
-        actual: 'Configuration incomplete',
+        message: 'Master configuration failed runtime validation: ' + details,
+        expected: 'A complete, valid Master with usable OK/NG references, ROI layouts, and alignment settings',
+        actual: `${failedMasterChecks.length} validation check(s) failed (OK refs ${okReferences.length}, NG refs ${ngReferences.length})`,
       });
       return {
         judgement: 'INVALID',
