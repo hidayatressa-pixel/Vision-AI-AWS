@@ -147,6 +147,41 @@ function currentRoiPatch(
   return gray;
 }
 
+function compareEdgeShape(reference: Float32Array, current: Float32Array): number {
+  let magnitudeError = 0;
+  let orientationError = 0;
+  let orientationWeight = 0;
+  let count = 0;
+
+  // Compare local gradient magnitude and direction. This gives the reference
+  // matcher a shape/edge signal instead of relying only on gray-level pixels.
+  for (let y = 1; y < PATCH_SIZE - 1; y++) {
+    for (let x = 1; x < PATCH_SIZE - 1; x++) {
+      const i = y * PATCH_SIZE + x;
+      const rgx = reference[i + 1] - reference[i - 1];
+      const rgy = reference[i + PATCH_SIZE] - reference[i - PATCH_SIZE];
+      const cgx = current[i + 1] - current[i - 1];
+      const cgy = current[i + PATCH_SIZE] - current[i - PATCH_SIZE];
+      const rm = Math.hypot(rgx, rgy);
+      const cm = Math.hypot(cgx, cgy);
+      magnitudeError += Math.abs(rm - cm) / 1020;
+      const weight = Math.min(rm, cm);
+      if (weight > 12) {
+        const cosine = (rgx * cgx + rgy * cgy) / (rm * cm + 1e-6);
+        orientationError += (1 - Math.max(-1, Math.min(1, cosine))) * 0.5 * weight;
+        orientationWeight += weight;
+      }
+      count++;
+    }
+  }
+
+  const magnitudeSimilarity = 1 - Math.min(1, magnitudeError / Math.max(1, count));
+  const orientationSimilarity = orientationWeight > 0
+    ? 1 - Math.min(1, orientationError / orientationWeight)
+    : magnitudeSimilarity;
+  return Math.max(0, Math.min(1, magnitudeSimilarity * 0.45 + orientationSimilarity * 0.55));
+}
+
 function comparePatches(reference: Float32Array, current: Float32Array, mode: InspectionROI['comparisonMode'] = 'BALANCED'): number {
   const referenceStructure = normalizePatch(reference);
   const currentStructure = normalizePatch(current);
@@ -164,7 +199,12 @@ function comparePatches(reference: Float32Array, current: Float32Array, mode: In
     : mode === 'INTENSITY_FIRST'
       ? structureDifference * 0.25 + brightnessDifference * 0.75
       : structureDifference * 0.75 + brightnessDifference * 0.25;
-  return Math.max(0, Math.min(1, 1 - combinedDifference));
+  const pixelSimilarity = Math.max(0, Math.min(1, 1 - combinedDifference));
+  const shapeSimilarity = compareEdgeShape(reference, current);
+  // Retain the existing comparison modes while adding an explicit edge-shape
+  // component so a missing/silhouette-changed object is not judged by brightness alone.
+  const shapeWeight = mode === 'INTENSITY_FIRST' ? 0.25 : 0.4;
+  return Math.max(0, Math.min(1, pixelSimilarity * (1 - shapeWeight) + shapeSimilarity * shapeWeight));
 }
 
 export class ROIInspector {
