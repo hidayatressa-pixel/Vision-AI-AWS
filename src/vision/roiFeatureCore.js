@@ -44,7 +44,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
   }
   const areaRatio=largest?largest.area/(size*size):0;
   const contrastStrength=largest?largest.sumContrast/largest.area:0;
-  const plausibleArea=areaRatio>=0.0015&&areaRatio<=0.62;
+  const plausibleArea=areaRatio>=0.003&&areaRatio<=0.62;
   const present=Boolean(largest&&plausibleArea&&contrastStrength>=2);
   const bboxWidth=largest?largest.maxX-largest.minX+1:0;
   const bboxHeight=largest?largest.maxY-largest.minY+1:0;
@@ -70,7 +70,7 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
   normalize(hog);normalize(cellEdges);
   const presenceConfidence=present
     ?Math.min(1,0.55+Math.min(0.25,areaRatio*2)+Math.min(0.2,contrastStrength/100))
-    :(areaRatio<0.0015&&contrastStrength<8?0.82:0.35);
+    :(areaRatio<0.003&&contrastStrength<8?0.82:0.35);
   return {
     present,presenceConfidence,areaRatio,contrastStrength,
     centroidX:largest?largest.sumX/largest.area/size:0.5,
