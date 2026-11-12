@@ -15,6 +15,24 @@ function distancePx(a, b, width, height) {
   return Math.hypot((a.x - b.x) * width, (a.y - b.y) * height);
 }
 
+function orderEightSlots(rois) {
+  const sortedByY = [...rois].sort((a, b) => a.y - b.y || a.x - b.x);
+  const heights = [...rois].map((roi) => roi.height ?? roi.radius * 2).sort((a, b) => a - b);
+  const rowTolerance = Math.max(0.02, heights[Math.floor(heights.length / 2)] * 0.75);
+  const rows = [];
+  for (const roi of sortedByY) {
+    let row = rows.find((candidate) => Math.abs(candidate.centerY - roi.y) <= rowTolerance);
+    if (!row) {
+      row = { centerY: roi.y, items: [] };
+      rows.push(row);
+    }
+    row.items.push(roi);
+    row.centerY = row.items.reduce((sum, item) => sum + item.y, 0) / row.items.length;
+  }
+  rows.sort((a, b) => a.centerY - b.centerY);
+  return { rows, ordered: rows.flatMap((row) => row.items.sort((a, b) => a.x - b.x)) };
+}
+
 function uncertainDuplicate(result, pointId, otherPointId) {
   return {
     ...result,
@@ -49,7 +67,7 @@ export function applyEightPointPresence(rois, roiResults, frameWidth, frameHeigh
     };
   }
 
-  const ids = rois.map((roi) => roi.id);
+  const { rows, ordered } = orderEightSlots(rois);\n  const ids = ordered.map((roi) => roi.id);
   if (ids.some((id) => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== EXPECTED_POINT_COUNT) {
     return {
       enabled: true,
