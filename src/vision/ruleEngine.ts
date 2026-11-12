@@ -73,7 +73,7 @@ export class RuleEngine {
 
     const resultById = new Map(roiResults.map((result) => [result.roiId, result]));
     let passedCount = 0;
-    let classifiedCount = 0;
+    let detectedCount = 0;
     let uncertainCount = 0;
 
     for (const roi of revision.inspectionROIs) {
@@ -91,11 +91,11 @@ export class RuleEngine {
         continue;
       }
 
-      classifiedCount++;
+      if (result.isPresent) detectedCount++;
 
       if (!result.isWithinTolerance || result.status === 'FAIL') {
         defects.push({
-          code: 'VISUAL_MISMATCH',
+          code: result.evidence === 'ABSENT' ? 'MISSING_PART' : 'VISUAL_MISMATCH',
           roiId: roi.id,
           roiName: roi.name,
           message: result.failureReason || `${roi.name}: visual mismatch`,
@@ -113,7 +113,7 @@ export class RuleEngine {
         primaryReason: 'Inspection Invalid: one or more ROI comparisons lacked reliable image evidence',
         defects,
         expectedCount,
-        detectedCount: classifiedCount,
+        detectedCount,
       };
     }
 
@@ -123,7 +123,7 @@ export class RuleEngine {
         primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using ${okReferences.length} OK / ${ngReferences.length} NG references`,
         defects: [],
         expectedCount,
-        detectedCount: classifiedCount,
+        detectedCount,
       };
     }
 
@@ -132,7 +132,7 @@ export class RuleEngine {
       primaryReason: defects[0]?.message || 'Visual mismatch detected',
       defects,
       expectedCount,
-      detectedCount: classifiedCount,
+      detectedCount,
     };
   }
 }
