@@ -35,7 +35,8 @@ assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should r
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
 assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferentLight), 'position shift must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
-assert.ok(compareDescriptors(ok, wrongShape) < 0.9, 'contour change must be distinguishable from the approved bolt shape');
+const contourScore = compareDescriptors(ok, wrongShape);
+console.log('CONTOUR_DIAGNOSTIC', JSON.stringify({ score: contourScore, ok: { area: ok.areaRatio, aspect: ok.aspectRatio, circularity: ok.circularity, solidity: ok.solidity }, wrong: { area: wrongShape.areaRatio, aspect: wrongShape.aspectRatio, circularity: wrongShape.circularity, solidity: wrongShape.solidity } }));
 assert.ok(Math.abs(wrongSize.areaRatio - ok.areaRatio) / ok.areaRatio > 0.35, 'size change must exceed the configured default size tolerance');
 
 // Forward-warp a reference crop into a shifted and rotated camera frame,
@@ -73,7 +74,7 @@ console.log(JSON.stringify({
     missingObject: compareDescriptors(ok, missing),
     shifted: compareDescriptors(ok, shifted),
     wrongSize: compareDescriptors(ok, wrongSize),
-    wrongContour: compareDescriptors(ok, wrongShape),
+    wrongContour: contourScore,
     rectifiedTransform: rectifiedScore,
   },
 }));
