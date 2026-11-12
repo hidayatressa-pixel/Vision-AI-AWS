@@ -5,7 +5,7 @@
  * inspected independently by ROIInspector; this module owns the eight-slot
  * contract and fail-safe aggregation, not image segmentation.
  */
-import type { InspectionROI } from '../types/master';
+import type { InspectionROI, ReferenceImage } from '../types/master';
 import type { ROIInspectionResult, DefectItem, JudgementResult } from '../types/inspection';
 
 export const EIGHT_POINT_COUNT = 8;
@@ -56,6 +56,13 @@ function orderEightPointSlots(rois: InspectionROI[]): { ordered: InspectionROI[]
 export function getEightPointSlotIds(rois: InspectionROI[]): Map<string, string> {
   const { ordered } = orderEightPointSlots(rois);
   return new Map(ordered.map((roi, index) => [roi.id, `P${index + 1}`]));
+}
+
+/** NG examples are optional in presence-only mode; every positive OK example must be uploaded. */
+export function validateEightPointReferenceImages(references: ReferenceImage[]): boolean {
+  const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+  return okReferences.length >= 1 &&
+    okReferences.every((reference) => Boolean(reference.imageUrl?.trim()));
 }
 
 export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
