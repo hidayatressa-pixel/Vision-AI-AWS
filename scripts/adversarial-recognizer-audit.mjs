@@ -72,7 +72,7 @@ const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
 console.log(JSON.stringify({
-  passed: 15,
+  passed: 16,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
