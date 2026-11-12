@@ -268,7 +268,10 @@ export class ROIInspector {
       }
       const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
       const expectedPresence = roi.expectedObjectPresence !== false;
-      const hasPresenceEvidence = currentShape.presenceConfidence >= 0.5;
+      const presenceThreshold = currentShape.present && roi.objectType === 'screw'
+        ? Math.max(0.5, Math.min(0.98, tolerance.minScrewConfidence))
+        : 0.5;
+      const hasPresenceEvidence = currentShape.presenceConfidence >= presenceThreshold;
       if (okReferences.length === 0 || ngReferences.length === 0) {
         results.push(uncertainResult(
           roi, geometry, 'Both OK and NG reference images are required for classification',
