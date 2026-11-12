@@ -12,6 +12,7 @@ export interface RoiShapeDescriptor {
   solidity: number;
   hog: Float32Array;
   cellEdges: Float32Array;
+  componentCells: Float32Array;
   edgeDensity: number;
 }
 export function describePatch(values: Float32Array, size?: number, polarity?: 'bright_on_dark' | 'dark_on_bright' | 'contrast'): RoiShapeDescriptor;
