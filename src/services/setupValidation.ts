@@ -43,6 +43,7 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(anchor.patchRadius) && anchor.patchRadius >= 4 && anchor.patchRadius <= 20
     )
   );
+  const eightPointAlignmentValid = !eightPointMode || anchors.length >= 3;
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
@@ -122,13 +123,15 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Alignment',
-      valid: anchorsValid,
+      valid: anchorsValid && eightPointAlignmentValid,
       detail: anchors.length === 0
-        ? 'Fixed-camera mode · no fiducial anchors configured'
+        ? (eightPointMode ? 'Invalid for eight-point profile · moving workpiece requires at least 3 fiducial anchors' : 'Fixed-camera mode · no fiducial anchors configured')
         : anchorsValid
           ? `Fiducial alignment enabled · ${anchors.length} anchors configured`
           : `Invalid anchor setup · ${anchors.length} configured (requires zero or at least three unique, non-collinear anchors)`,
-      error: 'Use fixed-camera mode with zero anchors, or configure at least three unique, non-collinear fiducial anchors with valid search and patch radii.',
+      error: eightPointMode
+        ? 'Eight-point presence inspection requires at least three unique, non-collinear fiducial anchors to align a moving workpiece.'
+        : 'Use fixed-camera mode with zero anchors, or configure at least three unique, non-collinear fiducial anchors with valid search and patch radii.',
     },
     {
       label: 'Rectangular ROIs',
