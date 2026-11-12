@@ -398,7 +398,10 @@ export class ROIInspector {
       const sizeTolerance = Math.max(0.05, Math.min(1, roi.sizeToleranceRatio ?? 0.35));
       const relativeSizeChange = Math.abs(currentShape.areaRatio - referenceCentroid.areaRatio) /
         Math.max(referenceCentroid.areaRatio, 0.001);
-      const positionOk = normalizedPositionOffset <= positionTolerance;
+      const globalPixelTolerance = Number.isFinite(tolerance.maxPositionOffsetPx)
+        ? Math.max(0, tolerance.maxPositionOffsetPx)
+        : 0;
+      const positionOk = normalizedPositionOffset <= positionTolerance && positionOffsetPx <= globalPixelTolerance;
       const sizeOk = relativeSizeChange <= sizeTolerance;
 
       let status: ROIInspectionResult['status'] = 'WARNING';
@@ -438,7 +441,6 @@ export class ROIInspector {
 
     // Alignment tolerances are checked by AlignmentEngine. Object position and
     // relative size tolerances are checked here in the rectified ROI coordinate space.
-    void tolerance;
     return { roiResults: results, extraObjects: [], matchedRoiCount };
   }
 }
