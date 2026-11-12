@@ -11,6 +11,7 @@ import {
 } from '../types/inspection';
 import { MasterRevision } from '../types/master';
 import { getMasterValidationChecks } from '../services/setupValidation';
+import { evaluateEightPointPresence, isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 export interface RuleEvaluationResult {
   judgement: JudgementResult;
@@ -60,6 +61,23 @@ export class RuleEngine {
         actual: 'Invalid frame',
       });
       return { judgement: 'INVALID', primaryReason: defects[0].message, defects, expectedCount, detectedCount: 0 };
+    }
+
+    if (isEightPointPresenceCandidate(revision.inspectionROIs)) {
+      const eightPoint = evaluateEightPointPresence(revision.inspectionROIs, roiResults);
+      const firstDefect = eightPoint.defects[0];
+      const summary = eightPoint.judgement === 'OK'
+        ? 'All 8 required screw positions are confirmed present'
+        : eightPoint.judgement === 'NG'
+          ? `${eightPoint.missingCount} of 8 required screw positions are confirmed missing`
+          : `${eightPoint.uncertainCount} screw position(s) could not be verified`;
+      return {
+        judgement: eightPoint.judgement,
+        primaryReason: summary,
+        defects: eightPoint.defects,
+        expectedCount: eightPoint.expectedCount,
+        detectedCount: eightPoint.detectedCount,
+      };
     }
 
     const resultById = new Map(roiResults.map((result) => [result.roiId, result]));
