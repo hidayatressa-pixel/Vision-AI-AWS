@@ -105,7 +105,7 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
   const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
-  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 && referenceClassesValid &&
+  const allReferencesUploaded = okReferences.length >= 1 && (eightPointMode || ngReferences.length >= 1) && referenceClassesValid &&
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
@@ -166,8 +166,12 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     {
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
-      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
-      error: 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
+      detail: eightPointMode
+        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} positive OK reference(s) · NG references optional for presence-only mode`
+        : `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
+      error: eightPointMode
+        ? 'Add at least one uploaded OK reference showing the screw present, with a valid ROI crop.'
+        : 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
       label: 'Per-reference ROI layout',
