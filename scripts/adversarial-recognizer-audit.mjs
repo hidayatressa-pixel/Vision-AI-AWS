@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describePatch, compareDescriptors } from '../src/vision/roiFeatureCore.mjs';
+import { describePatch, compareDescriptors } from '../src/vision/roiFeatureCore.js';
 
 const SIZE = 64;
 function makeBolt({ background = 150, object = 35, centerX = 32, centerY = 32, radius = 12, shaft = true } = {}) {
