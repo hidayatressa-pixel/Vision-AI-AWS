@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describePatch, compareDescriptors } from '../src/vision/roiFeatureCore.js';
+import { describePatch, compareDescriptors, rectifyPatch } from '../src/vision/roiFeatureCore.js';
 
 const SIZE = 64;
 function makeBolt({ background = 150, object = 35, centerX = 32, centerY = 32, radius = 12, shaft = true } = {}) {
@@ -33,18 +33,37 @@ assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferent
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongShape) < compareDescriptors(ok, sameDifferentLight), 'contour change must reduce feature similarity');
 
+// Forward-warp a reference crop into a shifted and rotated camera frame,
+// then verify that inverse rectification reconstructs the canonical ROI.
+const angle = 17 * Math.PI / 180;
+const cos = Math.cos(angle), sin = Math.sin(angle);
+const frameWidth = 128, frameHeight = 128, centerX = 69, centerY = 61;
+const transformedFrame = new Float32Array(frameWidth * frameHeight).fill(150);
+const canonical = makeBolt();
+for (let y = 0; y < frameHeight; y++) for (let x = 0; x < frameWidth; x++) {
+  const dx = x - centerX, dy = y - centerY;
+  const sourceX = cos * dx + sin * dy + SIZE / 2;
+  const sourceY = -sin * dx + cos * dy + SIZE / 2;
+  if (sourceX >= 0 && sourceY >= 0 && sourceX < SIZE && sourceY < SIZE) {
+    transformedFrame[y * frameWidth + x] = canonical[Math.round(sourceY) * SIZE + Math.round(sourceX)];
+  }
+}
+const rectified = rectifyPatch(transformedFrame, frameWidth, frameHeight, centerX, centerY, SIZE, SIZE, cos, sin, SIZE);
+assert.ok(rectified, 'rotated ROI should remain inside the frame');
+assert.ok(compareDescriptors(ok, describePatch(rectified, SIZE, 'contrast')) > 0.9, 'rotation and translation rectification should preserve object features');
+
 const bright = describePatch(makeBolt({ background: 35, object: 190 }), SIZE, 'bright_on_dark');
 assert.equal(bright.present, true, 'bright-on-dark polarity should detect a bright bolt');
 const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
 console.log(JSON.stringify({
-  passed: 8,
+  passed: 10,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
     shifted: compareDescriptors(ok, shifted),
     wrongSize: compareDescriptors(ok, wrongSize),
-    wrongContour: compareDescriptors(ok, wrongShape),
+    wrongContour: compareDescriptors(ok, wrongShape),\n    rectifiedTransform: compareDescriptors(ok, describePatch(rectified, SIZE, 'contrast')),
   },
 }));
