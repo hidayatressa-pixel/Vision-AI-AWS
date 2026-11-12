@@ -1,4 +1,5 @@
 import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
+import { isEightPointPresenceProfile } from '../vision/eightPointPresenceCore.js';
 
 export interface SetupValidationCheck {
   label: string;
@@ -22,6 +23,7 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
   const expectedObjectCount = rois.filter((roi) => roi.expectedObjectPresence !== false).length;
+  const eightPointProfile = isEightPointPresenceProfile(rois);
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
@@ -101,12 +103,18 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
   const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
-  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 && referenceClassesValid &&
+  const allReferencesUploaded = okReferences.length >= 1 && (eightPointProfile || ngReferences.length >= 1) && referenceClassesValid &&
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
+    {
+      label: 'Eight-point presence profile',
+      valid: !eightPointProfile || (anchors.length >= 3 && anchorIdsUnique && anchorGeometryValid && revision.expectedObjectCount === 8 && rois.every((roi) => roi.objectType === 'screw' && roi.isRequired && roi.expectedObjectPresence !== false)),
+      detail: eightPointProfile ? `Eight required screw slots · ${anchors.length} alignment anchor(s)` : 'Not active · standard ROI profile',
+      error: 'Eight-point presence requires exactly 8 required screw ROIs, expected presence enabled, expected count 8, and at least 3 unique non-collinear alignment anchors.',
+    },
     {
       label: 'Alignment',
       valid: anchorsValid,
