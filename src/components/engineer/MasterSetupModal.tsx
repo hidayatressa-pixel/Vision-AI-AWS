@@ -514,7 +514,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       expectedObjectCount: editedRevision.inspectionROIs.length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
-        objectType: 'component',
+        objectType: roi.objectType,
         width: roi.width ?? roi.radius * 2,
         height: roi.height ?? roi.radius * 2,
       })),
@@ -932,6 +932,26 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
                           <div className="col-span-2 flex items-center gap-2">
+                            <span>Object:</span>
+                            <select value={roi.objectType} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const objectType = event.target.value as InspectionROI['objectType'];
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, objectType } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="screw">Screw / Bolt</option>
+                              <option value="connector">Connector</option>
+                              <option value="clip">Clip</option>
+                              <option value="label">Label</option>
+                              <option value="component">Component</option>
+                            </select>
+                          </div>
+                          <label className="col-span-2 flex items-center gap-2 text-[10px] text-slate-300">
+                            <input type="checkbox" checked={roi.expectedObjectPresence !== false} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const expectedObjectPresence = event.target.checked;
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedObjectPresence } : item) }));
+                            }} />
+                            Object must be physically present in this ROI
+                          </label>
+                          <div className="col-span-2 flex items-center gap-2">
                             <span>Comparison:</span>
                             <select value={roi.comparisonMode ?? "BALANCED"} onClick={(event) => event.stopPropagation()} onChange={(event) => {
                               const comparisonMode = event.target.value as NonNullable<InspectionROI["comparisonMode"]>;
@@ -1011,7 +1031,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against the configured OK/NG reference crops, using the layout saved separately for each reference image.
+                  Each ROI now checks physical presence, spatial edge features, contour/shape, relative size, and position against its own OK/NG reference crops. Alignment and camera movement are checked separately before ROI mapping. Final thresholds still require calibration with real station images.
                 </div>
               </div>
             )}
