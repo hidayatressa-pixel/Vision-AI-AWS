@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import ts from 'typescript';
+import * as ts from 'typescript';
 
 // Load the actual TypeScript engine in Node 22 without adding a test-runner dependency.
 const source = await readFile(new URL('../src/vision/eightPointPresenceEngine.ts', import.meta.url), 'utf8');
