@@ -832,7 +832,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
                         minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
-                        expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35,
+                        expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35, shapeToleranceRatio: 0.10,
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
@@ -989,6 +989,13 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                             <input type="range" min="0.05" max="1" step="0.05" value={roi.sizeToleranceRatio ?? 0.35} onClick={(event) => event.stopPropagation()} onChange={(event) => {
                               const sizeToleranceRatio = Number(event.target.value);
                               setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, sizeToleranceRatio } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Contour / shape tolerance</span><span>{(((roi.shapeToleranceRatio ?? 0.10) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.05" max="0.4" step="0.01" value={roi.shapeToleranceRatio ?? 0.10} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const shapeToleranceRatio = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, shapeToleranceRatio } : item) }));
                             }} className="w-full accent-cyan-500" />
                           </div>
                           <div className="col-span-2">
