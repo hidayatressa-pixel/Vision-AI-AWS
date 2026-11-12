@@ -16,4 +16,5 @@ export interface RoiShapeDescriptor {
 }
 export function describePatch(values: Float32Array, size?: number, polarity?: 'bright_on_dark' | 'dark_on_bright' | 'contrast'): RoiShapeDescriptor;
 export function compareDescriptors(a: RoiShapeDescriptor, b: RoiShapeDescriptor): number;
-\nexport function rectifyPatch(frameValues: ArrayLike<number>, frameWidth: number, frameHeight: number, centerX: number, centerY: number, roiWidth: number, roiHeight: number, cos: number, sin: number, size?: number): Float32Array | null;\n
+
+export function rectifyPatch(frameValues: ArrayLike<number>, frameWidth: number, frameHeight: number, centerX: number, centerY: number, roiWidth: number, roiHeight: number, cos: number, sin: number, size?: number): Float32Array | null;
