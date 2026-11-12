@@ -11,6 +11,7 @@ import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } fr
 import { GrayscaleImage } from './imageUtils';
 import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
+import { isEightPointPresenceProfile } from './eightPointPresenceCore.js';
 
 const PATCH_SIZE = 64;
 const referenceCache = new Map<string, Promise<Float32Array | null>>();
@@ -249,6 +250,7 @@ export class ROIInspector {
     colorFrame: ImageData | null = null
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
+    const eightPointProfile = isEightPointPresenceProfile(rois);
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
     // Keep the existing signature for callers that still supply the RGB frame;
@@ -295,7 +297,7 @@ export class ROIInspector {
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
-      if (allOkMatches.length === 0 || ngMatches.length === 0) {
+      if (allOkMatches.length === 0 || (!eightPointProfile && ngMatches.length === 0)) {
         results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
         continue;
       }
@@ -312,7 +314,9 @@ export class ROIInspector {
       }
 
       const bestOk = okMatches.reduce((best, item) => item.score > best.score ? item : best);
-      const bestNg = ngMatches.reduce((best, item) => item.score > best.score ? item : best);
+      const bestNg = ngMatches.length > 0
+        ? ngMatches.reduce((best, item) => item.score > best.score ? item : best)
+        : bestOk;
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
       const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
 
@@ -338,9 +342,13 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const missingConfirmed = Boolean(bestAbsentNg && confirmsMissingObject(
-          currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
-        ));
+        const strongAbsenceEvidence = !currentShape.present &&
+          currentShape.presenceConfidence >= 0.75 && currentShape.areaRatio <= 0.003;
+        const missingConfirmed = eightPointProfile
+          ? strongAbsenceEvidence
+          : Boolean(bestAbsentNg && confirmsMissingObject(
+              currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
+            ));
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
@@ -388,8 +396,10 @@ export class ROIInspector {
       }
 
       const margin = bestOk.score - bestNg.score;
-      const okConfirmed = bestOk.score >= threshold && margin >= classMargin;
-      const ngConfirmed = bestNg.score >= threshold && margin <= -classMargin;
+      const okConfirmed = eightPointProfile
+        ? bestOk.score >= threshold
+        : bestOk.score >= threshold && margin >= classMargin;
+      const ngConfirmed = !eightPointProfile && bestNg.score >= threshold && margin <= -classMargin;
       const bestSimilarity = Math.max(bestOk.score, bestNg.score);
 
       // Position is measured against the best OK object centroid in rectified ROI space.
