@@ -360,10 +360,18 @@ export class ROIInspector {
         return { reference, ...compared };
       }));
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
-      const okMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
+      const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
+      // A Master OK image that does not visibly contain the required object is
+      // not a valid positive reference for this ROI. Never learn "missing" as OK.
+      const okMatches = expectedPresence
+        ? allOkMatches.filter((item) => item.referenceShape.present)
+        : allOkMatches.filter((item) => !item.referenceShape.present);
       if (okMatches.length === 0 || ngMatches.length === 0) {
-        results.push(uncertainResult(roi, geometry, `${roi.name}: one or more OK/NG reference crops could not be decoded`, frame.width, frame.height, currentShape));
+        const message = allOkMatches.length === 0 || ngMatches.length === 0
+          ? `${roi.name}: one or more OK/NG reference crops could not be decoded`
+          : `${roi.name}: Master OK reference does not show the configured expected object state`;
+        results.push(uncertainResult(roi, geometry, message, frame.width, frame.height, currentShape));
         continue;
       }
 
