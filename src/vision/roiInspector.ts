@@ -359,8 +359,12 @@ export class ROIInspector {
           evidence: missingConfirmed ? 'ABSENT' : 'UNCERTAIN',
           status: missingConfirmed ? 'FAIL' : 'WARNING',
           failureReason: missingConfirmed
-            ? `${roi.name}: missing ${roi.objectType} confirmed by NG reference ${bestAbsentNg?.reference.label}`
-            : `${roi.name}: object presence could not be confirmed and no matching missing-object NG reference proved absence`,
+            ? eightPointPresenceMode
+              ? `${roi.name}: screw absence confirmed by clear background evidence against the positive Master`
+              : `${roi.name}: missing ${roi.objectType} confirmed by NG reference ${bestAbsentNg?.reference.label}`
+            : eightPointPresenceMode
+              ? `${roi.name}: absence evidence is not strong enough to confirm a missing screw`
+              : `${roi.name}: object presence could not be confirmed and no matching missing-object NG reference proved absence`,
         });
         continue;
       }
