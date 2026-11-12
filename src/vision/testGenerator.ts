@@ -9,6 +9,9 @@ export type TestScenarioType =
   | 'SHIFTED_VIBRATION' // Shift and rotation scenario used to verify alignment compensation.
   | 'MISSING_SCREW_4' // NG: Screw #4 Missing
   | 'MISSING_SCREW_2' // NG: Screw #2 Missing
+  | 'MISSING_SCREW_6' // NG: Screw #6 Missing
+  | 'MISSING_SCREW_7' // NG: Screw #7 Missing
+  | 'MISSING_SCREW_8' // NG: Screw #8 Missing
   | 'OUT_OF_TOLERANCE_SCREW_2' // NG: Screw #2 shifted 40px away
   | 'EXTRA_SCREW' // NG: extra ninth screw added in the workpiece area
   | 'ALIGNMENT_FAILURE'; // System Error: Anchors blocked/missing
@@ -121,7 +124,10 @@ export function drawWorkpieceToCanvas(
   const screwXs = [bx + 70, bx + 183, bx + 297, bx + 410];
   const screws: Array<{ id: number; x: number; y: number; label: string; present: boolean }> = [
     ...screwXs.map((x, index) => ({ id: index + 1, x, y: by + 80, label: `#${index + 1}`, present: true })),
-    ...screwXs.map((x, index) => ({ id: index + 5, x, y: by + bh - 80, label: `#${index + 5}`, present: true })),
+    { id: 5, x: bx + 183, y: by + bh / 2 - 12, label: '#5', present: true },
+    { id: 6, x: bx + 297, y: by + bh / 2 - 12, label: '#6', present: true },
+    { id: 7, x: bx + 183, y: by + bh - 80, label: '#7', present: true },
+    { id: 8, x: bx + 297, y: by + bh - 80, label: '#8', present: true },
   ];
 
   // Modify screws based on scenario
@@ -129,6 +135,12 @@ export function drawWorkpieceToCanvas(
     screws[3].present = false; // Screw 4 missing!
   } else if (scenario === 'MISSING_SCREW_2') {
     screws[1].present = false; // Screw 2 missing!
+  } else if (scenario === 'MISSING_SCREW_6') {
+    screws[5].present = false;
+  } else if (scenario === 'MISSING_SCREW_7') {
+    screws[6].present = false;
+  } else if (scenario === 'MISSING_SCREW_8') {
+    screws[7].present = false;
   } else if (scenario === 'OUT_OF_TOLERANCE_SCREW_2') {
     // Screw 2 placed 42px to the left (clearly exceeds 25px tolerance!)
     screws[1].x -= 42;
