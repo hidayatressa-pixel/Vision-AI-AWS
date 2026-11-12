@@ -495,9 +495,18 @@ export class ROIInspector {
       });
     }
 
+    // Preserve the Master ROI order as stable P1-P8 identifiers for the operator
+    // overlay and inspection history. The slot order is configured once in Master.
+    const finalResults = eightPointPresenceMode
+      ? results.map((result, index) => ({ ...result, inspectionPointId: `P${index + 1}` }))
+      : results;
+    const finalMatchedRoiCount = finalResults.filter((result) =>
+      result.evidence === 'PRESENT' && result.status === 'PASS' && result.isWithinTolerance
+    ).length;
+
     // Alignment tolerances are checked by AlignmentEngine. Object position and
     // relative size tolerances are checked here in the rectified ROI coordinate space.
-    return { roiResults: results, extraObjects: [], matchedRoiCount };
+    return { roiResults: finalResults, extraObjects: [], matchedRoiCount: finalMatchedRoiCount };
   }
 }
 
