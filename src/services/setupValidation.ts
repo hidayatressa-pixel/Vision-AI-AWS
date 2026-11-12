@@ -1,5 +1,5 @@
 import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
-import { isEightPointPresenceCandidate, validateEightPointPresenceLayout } from '../vision/eightPointPresenceEngine';
+import { isEightPointPresenceCandidate, validateEightPointPresenceLayout, validateEightPointReferenceImages } from '../vision/eightPointPresenceEngine';
 
 export interface SetupValidationCheck {
   label: string;
@@ -105,11 +105,10 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
   const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
-  const referencesRequiredForUpload = eightPointMode
-    ? references.filter((reference) => (reference.kind || 'OK') === 'OK')
-    : references;
-  const allReferencesUploaded = okReferences.length >= 1 && (eightPointMode || ngReferences.length >= 1) && referenceClassesValid &&
-    referencesRequiredForUpload.every((reference) => Boolean(reference.imageUrl?.trim()));
+  const allReferencesUploaded = (eightPointMode
+    ? validateEightPointReferenceImages(references)
+    : okReferences.length >= 1 && ngReferences.length >= 1 && references.every((reference) => Boolean(reference.imageUrl?.trim()))) &&
+    referenceClassesValid;
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
