@@ -24,9 +24,14 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
+  const anchorGeometryValid = anchors.length === 0 || anchors.some((a, i) =>
+    anchors.some((b, j) => j > i && anchors.some((d, k) => k > j &&
+      Math.abs((b.x - a.x) * (d.y - a.y) - (d.x - a.x) * (b.y - a.y)) > 0.0005))
+  );
   const anchorsValid = anchors.length === 0 || (
     anchors.length >= 3 &&
     anchorIdsUnique &&
+    anchorGeometryValid &&
     anchors.every((anchor) =>
       Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
       Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
@@ -54,7 +59,12 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(height) && height > 0 && height <= 1 &&
       roi.x - width / 2 >= 0 && roi.y - height / 2 >= 0 &&
       roi.x + width / 2 <= 1 && roi.y + height / 2 <= 1 &&
-      Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98;
+      Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98 &&
+      Number.isFinite(roi.toleranceRadius) && roi.toleranceRadius >= 0.005 && roi.toleranceRadius <= 0.5 &&
+      (roi.expectedObjectPresence === undefined || typeof roi.expectedObjectPresence === 'boolean') &&
+      (roi.minClassMargin === undefined || (Number.isFinite(roi.minClassMargin) && roi.minClassMargin >= 0.02 && roi.minClassMargin <= 0.3)) &&
+      (roi.sizeToleranceRatio === undefined || (Number.isFinite(roi.sizeToleranceRatio) && roi.sizeToleranceRatio >= 0.05 && roi.sizeToleranceRatio <= 1)) &&
+      ['screw', 'connector', 'clip', 'label', 'component'].includes(roi.objectType);
   });
   const roiIdsAreUnique = new Set(rois.map((roi) => roi.id)).size === rois.length &&
     rois.every((roi) => Boolean(roi.id?.trim()));
@@ -77,7 +87,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
-  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 &&
+  const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
+  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 && referenceClassesValid &&
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
@@ -90,8 +101,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
         ? 'Fixed-camera mode · no fiducial anchors configured'
         : anchorsValid
           ? `Fiducial alignment enabled · ${anchors.length} anchors configured`
-          : `Invalid anchor setup · ${anchors.length} configured (alignment requires zero or at least three valid anchors)`,
-      error: 'Use fixed-camera mode with zero anchors, or configure at least three unique, valid fiducial anchors.',
+          : `Invalid anchor setup · ${anchors.length} configured (requires zero or at least three unique, non-collinear anchors)`,
+      error: 'Use fixed-camera mode with zero anchors, or configure at least three unique, non-collinear fiducial anchors with valid search and patch radii.',
     },
     {
       label: 'Rectangular ROIs',
@@ -119,8 +130,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Master resolution',
-      valid: revision.masterWidth > 0 && revision.masterHeight > 0,
-      detail: revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
+      valid: Number.isFinite(revision.masterWidth) && Number.isFinite(revision.masterHeight) && revision.masterWidth > 0 && revision.masterHeight > 0,
+      detail: Number.isFinite(revision.masterWidth) && Number.isFinite(revision.masterHeight) && revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
       error: 'Master image dimensions are invalid.',
     },
     {
@@ -152,6 +163,12 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       valid: revision.expectedObjectCount === rois.length,
       detail: `${revision.expectedObjectCount} expected / ${rois.length} configured`,
       error: 'Expected ROI count must match the number of rectangular ROIs.',
+    },
+    {
+      label: 'Object feature settings',
+      valid: roisHaveValidGeometry,
+      detail: 'Presence, polarity, class margin, size and position values validated',
+      error: 'Check object type, expected presence, polarity and ROI feature tolerance values.',
     },
     {
       label: 'ROI similarity threshold',
