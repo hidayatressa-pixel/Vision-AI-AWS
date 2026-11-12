@@ -31,7 +31,8 @@ assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should r
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
 assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferentLight), 'position shift must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
-assert.ok(compareDescriptors(ok, wrongShape) < compareDescriptors(ok, sameDifferentLight), 'contour change must reduce feature similarity');
+assert.ok(compareDescriptors(ok, wrongShape) < 0.92, 'contour change must be distinguishable from the approved bolt shape');
+assert.ok(Math.abs(wrongSize.areaRatio - ok.areaRatio) / ok.areaRatio > 0.35, 'size change must exceed the configured default size tolerance');
 
 // Forward-warp a reference crop into a shifted and rotated camera frame,
 // then verify that inverse rectification reconstructs the canonical ROI.
@@ -45,14 +46,16 @@ for (let y = 0; y < frameHeight; y++) for (let x = 0; x < frameWidth; x++) {
   const sourceX = cos * dx + sin * dy + SIZE / 2;
   const sourceY = -sin * dx + cos * dy + SIZE / 2;
   if (sourceX >= 0 && sourceY >= 0 && sourceX < SIZE && sourceY < SIZE) {
-    transformedFrame[y * frameWidth + x] = canonical[Math.round(sourceY) * SIZE + Math.round(sourceX)];
+    const ix = Math.min(SIZE - 1, Math.max(0, Math.round(sourceX)));
+    const iy = Math.min(SIZE - 1, Math.max(0, Math.round(sourceY)));
+    transformedFrame[y * frameWidth + x] = canonical[iy * SIZE + ix];
   }
 }
 const rectified = rectifyPatch(transformedFrame, frameWidth, frameHeight, centerX, centerY, SIZE, SIZE, cos, sin, SIZE);
 assert.ok(rectified, 'rotated ROI should remain inside the frame');
 const rectifiedDescriptor = describePatch(rectified, SIZE, 'contrast');
 const rectifiedScore = compareDescriptors(ok, rectifiedDescriptor);
-console.log('RECTIFICATION_DIAGNOSTIC', JSON.stringify({ okPresent: ok.present, rectifiedPresent: rectifiedDescriptor.present, okArea: ok.areaRatio, rectifiedArea: rectifiedDescriptor.areaRatio, score: rectifiedScore }));
+assert.ok(rectifiedScore > 0.9, 'rotation and translation rectification should preserve object features');
 
 const bright = describePatch(makeBolt({ background: 35, object: 190 }), SIZE, 'bright_on_dark');
 assert.equal(bright.present, true, 'bright-on-dark polarity should detect a bright bolt');
@@ -60,7 +63,7 @@ const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
 console.log(JSON.stringify({
-  passed: 10,
+  passed: 12,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
