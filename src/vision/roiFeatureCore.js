@@ -114,6 +114,13 @@ function ratioSimilarity(a,b,sensitivity=0.5){
   if(a<=0||b<=0)return a===b?1:0;
   return Math.exp(-Math.abs(Math.log(a/b))*sensitivity);
 }
+export function confirmsMissingObject(currentPresent, positiveOkScore, absentNgScore, threshold = 0.75, margin = 0.06) {
+  return !currentPresent &&
+    Number.isFinite(positiveOkScore) && Number.isFinite(absentNgScore) &&
+    Number.isFinite(threshold) && Number.isFinite(margin) &&
+    absentNgScore >= threshold && absentNgScore - positiveOkScore >= margin;
+}
+
 export function contourWithinTolerance(a, b, tolerance = 0.10) {
   if (!a || !b || !a.present || !b.present || !Number.isFinite(tolerance) || tolerance < 0) return false;
   const aspectChange = Math.abs(a.aspectRatio - b.aspectRatio) / Math.max(b.aspectRatio, 0.001);
