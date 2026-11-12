@@ -438,6 +438,12 @@ export class ROIInspector {
         reason = `${roi.name}: matched approved NG reference (${Math.round(bestNg.score * 100)}%; ${bestNg.reference.label})`;
       } else if (okConfirmed) {
         status = 'PASS';
+      } else if (eightPointProfile) {
+        // For presence-only screw inspection, foreground is not enough:
+        // the candidate must match the approved screw reference. A hole,
+        // washer, or unrelated foreground shape must never count as a bolt.
+        status = 'FAIL';
+        reason = `${roi.name}: screw-like foreground did not match the approved screw reference (${Math.round(bestOk.score * 100)}%; required ${Math.round(threshold * 100)}%)`;
       } else {
         reason = `${roi.name}: OK/NG references are not sufficiently separated (OK ${Math.round(bestOk.score * 100)}%, NG ${Math.round(bestNg.score * 100)}%, required margin ${Math.round(classMargin * 100)}%)`;
       }
