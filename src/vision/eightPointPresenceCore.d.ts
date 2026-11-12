@@ -28,3 +28,5 @@ export function evaluateEightPointPresence(
   alignment: AlignmentResult,
   roiResults: ROIInspectionResult[]
 ): EightPointResult | null;
+
+export function confirmsEightPointAbsence(shape: { present: boolean; presenceConfidence: number; areaRatio: number } | null | undefined): boolean;
