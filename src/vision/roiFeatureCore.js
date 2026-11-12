@@ -2,6 +2,23 @@
  * Pure ROI feature extraction and comparison.
  * Kept independent from DOM/canvas so the recognizer can be adversarially tested in Node.
  */
+export function rectifyPatch(frameValues, frameWidth, frameHeight, centerX, centerY, roiWidth, roiHeight, cos, sin, size = 64) {
+  if (!frameValues || frameValues.length < frameWidth * frameHeight ||
+      frameWidth < 2 || frameHeight < 2 || roiWidth <= 0 || roiHeight <= 0) return null;
+  const output = new Float32Array(size * size);
+  for (let py = 0; py < size; py++) {
+    const localY = ((py + 0.5) / size - 0.5) * roiHeight;
+    for (let px = 0; px < size; px++) {
+      const localX = ((px + 0.5) / size - 0.5) * roiWidth;
+      const sx = Math.round(centerX + cos * localX - sin * localY);
+      const sy = Math.round(centerY + sin * localX + cos * localY);
+      if (sx < 0 || sy < 0 || sx >= frameWidth || sy >= frameHeight) return null;
+      output[py * size + px] = frameValues[sy * frameWidth + sx];
+    }
+  }
+  return output;
+}
+
 export function describePatch(values, size = 64, polarity = 'contrast') {
   if (!values || values.length !== size * size) throw new Error('Invalid ROI patch dimensions');
   const border = [];
