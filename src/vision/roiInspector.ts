@@ -80,6 +80,10 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
     image.onerror = () => resolve(null);
     image.src = reference.imageUrl;
   });
+  if (referenceCache.size >= 256) {
+    const oldestKey = referenceCache.keys().next().value;
+    if (oldestKey) referenceCache.delete(oldestKey);
+  }
   referenceCache.set(cacheKey, promise);
   return promise;
 }
@@ -245,8 +249,6 @@ export class ROIInspector {
     colorFrame: ImageData | null = null
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
-    const okReferences = usableReferences.filter((reference) => (reference.kind || 'OK') === 'OK');
-    const ngReferences = usableReferences.filter((reference) => reference.kind === 'NG');
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
     // Keep the existing signature for callers that still supply the RGB frame;
