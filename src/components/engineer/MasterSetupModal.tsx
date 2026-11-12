@@ -81,7 +81,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
       return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    (['OK', 'NG'] as const).forEach((kind) => {
+    const requiredKinds: Array<'OK' | 'NG'> = isEightPointPresenceCandidate(revision.inspectionROIs) ? ['OK'] : ['OK', 'NG'];
+    requiredKinds.forEach((kind) => {
       if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
         id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
         label: `${kind} Reference 1`, imageUrl: '', kind,
@@ -689,7 +690,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
                           <div className="px-2 text-center text-[9px] font-mono font-bold text-amber-400">
-                            UPLOAD REQUIRED
+                            {isEightPointPresenceMode && reference.kind === 'NG' ? 'OPTIONAL NG' : 'UPLOAD REQUIRED'}
                           </div>
                         )}
                       </div>
@@ -829,6 +830,55 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     <span className="text-xs font-mono uppercase tracking-wider text-slate-400">Rectangular Inspection Areas</span>
                     <div className="text-[10px] text-slate-500 mt-1">Add, move, resize, and assign an OK reference.</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!window.confirm('Replace the current ROI setup with eight starter screw slots in a 4-2-2 layout? You can move and resize every slot afterward.')) return;
+                      const positions = [
+                        { x: 0.18, y: 0.25 }, { x: 0.39, y: 0.25 },
+                        { x: 0.61, y: 0.25 }, { x: 0.82, y: 0.25 },
+                        { x: 0.39, y: 0.52 }, { x: 0.61, y: 0.52 },
+                        { x: 0.39, y: 0.78 }, { x: 0.61, y: 0.78 },
+                      ];
+                      const baseId = editedRevision.id + '-eight-point-' + Date.now();
+                      const slots: InspectionROI[] = positions.map((position, index) => ({
+                        id: baseId + '-p' + (index + 1),
+                        name: 'P' + (index + 1),
+                        objectType: 'screw',
+                        x: position.x,
+                        y: position.y,
+                        radius: 0.05,
+                        width: 0.10,
+                        height: 0.10,
+                        toleranceRadius: 0.05,
+                        minConfidence: 0.75,
+                        isRequired: true,
+                        expectedPolarity: 'contrast',
+                        comparisonMode: 'STRUCTURE_FIRST',
+                        expectedObjectPresence: true,
+                        minClassMargin: 0.06,
+                        sizeToleranceRatio: 0.35,
+                        shapeToleranceRatio: 0.10,
+                      }));
+                      setEditedRevision((prev) => ({
+                        ...prev,
+                        expectedObjectCount: 8,
+                        inspectionROIs: slots,
+                        referenceImages: prev.referenceImages.map((reference) => ({
+                          ...reference,
+                          roiLayouts: Object.fromEntries(slots.map((roi) => [roi.id, {
+                            x: roi.x - (roi.width ?? 0.10) / 2,
+                            y: roi.y - (roi.height ?? 0.10) / 2,
+                            width: roi.width ?? 0.10,
+                            height: roi.height ?? 0.10,
+                          }])),
+                        })),
+                      }));
+                      setSelectedId(slots[0].id);
+                      setSelectedItemType('ROI');
+                    }}
+                    className="flex items-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-2 text-[10px] font-bold text-cyan-300"
+                  >Create 4-2-2 Screw Layout</button>
                   <button
                     type="button"
                     onClick={() => {
