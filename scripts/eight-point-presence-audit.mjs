@@ -46,6 +46,12 @@ for (const missingIndex of [0, 5, 6, 7]) {
 const uncertain = evaluateEightPointPresence(revision, alignment, rois.map((roi, index) => index === 3
   ? { ...result(roi), evidence: 'UNCERTAIN', status: 'WARNING', isWithinTolerance: false }
   : result(roi)));
+const unmatchedObject = evaluateEightPointPresence(revision, alignment, rois.map((roi, index) => index === 2
+  ? result(roi, 'PRESENT', 'FAIL')
+  : result(roi)));
+assert.equal(unmatchedObject.judgement, 'NG', 'a foreground object that fails the approved screw reference must not count as a valid screw');
+assert.equal(unmatchedObject.detectedCount, 7, 'only reference-confirmed screws count as detected');
+
 assert.equal(uncertain.judgement, 'INVALID');
 assert.equal(uncertain.uncertainCount, 1);
 
