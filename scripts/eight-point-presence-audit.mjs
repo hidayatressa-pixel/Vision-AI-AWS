@@ -68,6 +68,14 @@ assert.equal(oneMissing.detectedCount, 7);
 assert.equal(oneMissing.missingCount, 1);
 assert.equal(oneMissing.points[0].status, 'NG');
 
+const unapprovedForeground = engine.evaluateEightPointPresence(rois, rois.map((roi, index) => {
+  const result = resultFor(roi, 'PRESENT');
+  return index === 3 ? { ...result, status: 'WARNING', isWithinTolerance: false } : result;
+}));
+assert.equal(unapprovedForeground.judgement, 'INVALID', 'foreground without a passing screw match must not count as OK');
+assert.equal(unapprovedForeground.detectedCount, 7);
+assert.equal(unapprovedForeground.uncertainCount, 1);
+
 const uncertainOnly = engine.evaluateEightPointPresence(rois, rois.map((roi, index) =>
   resultFor(roi, index === 5 ? 'UNCERTAIN' : 'PRESENT')
 ));
