@@ -73,6 +73,7 @@ export interface ROIInspectionResult {
   positionOffsetMm: number;
   isWithinTolerance: boolean;
   confidence: number;
+  /** True when the ROI has classifiable reference evidence; not independent object localization. */
   isPresent: boolean;
   /** Evidence classification prevents low-confidence absence from becoming automatic NG. */
   evidence: 'PRESENT' | 'ABSENT' | 'UNCERTAIN';
