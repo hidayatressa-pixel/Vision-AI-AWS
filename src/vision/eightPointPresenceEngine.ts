@@ -156,9 +156,19 @@ export function evaluateEightPointPresence(
         expected: 'Screw present',
         actual: 'Screw absent',
       });
-    } else {
+    } else if (result.evidence === 'PRESENT' && result.status === 'PASS' && result.isWithinTolerance) {
       detectedCount++;
       status = 'OK';
+    } else {
+      uncertainCount++;
+      defects.push({
+        code: 'LOW_CONFIDENCE',
+        roiId: roi.id,
+        roiName: `${pointId} · ${roi.name}`,
+        message: result.failureReason || `${pointId}: foreground was detected but did not pass the approved screw presence check`,
+        expected: 'A screw matching the approved positive Master reference',
+        actual: 'Presence evidence did not pass validation',
+      });
     }
 
     points.push({
