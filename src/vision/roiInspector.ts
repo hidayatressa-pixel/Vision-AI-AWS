@@ -1,8 +1,8 @@
 /**
  * Multi-reference rectangular ROI inspector.
- * Compares each live ROI against multiple approved OK and NG reference images.
- * Every reference image carries its own editable normalized ROI layout.
- * No screw/circle detection or PLC communication is used in this MVP path.
+ * Uses master-to-frame alignment, reference-specific crops, and fail-safe
+ * classification. A patch that matches neither approved class is UNCERTAIN,
+ * never an automatic NG or OK.
  */
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
@@ -29,7 +29,6 @@ function imageToPatch(image: HTMLImageElement, layout?: ReferenceRoiLayout): Flo
     canvas.height = PATCH_SIZE;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
-
     if (layout) {
       const left = Math.max(0, Math.min(1, layout.x)) * image.naturalWidth;
       const top = Math.max(0, Math.min(1, layout.y)) * image.naturalHeight;
@@ -40,7 +39,6 @@ function imageToPatch(image: HTMLImageElement, layout?: ReferenceRoiLayout): Flo
     } else {
       ctx.drawImage(image, 0, 0, PATCH_SIZE, PATCH_SIZE);
     }
-
     const pixels = ctx.getImageData(0, 0, PATCH_SIZE, PATCH_SIZE).data;
     const gray = new Float32Array(PATCH_SIZE * PATCH_SIZE);
     for (let i = 0; i < gray.length; i++) {
@@ -65,13 +63,9 @@ function fallbackLayout(roi: InspectionROI): ReferenceRoiLayout {
 
 function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<Float32Array | null> {
   const layout = reference.roiLayouts?.[roi.id] || fallbackLayout(roi);
-  const cacheKey = [
-    reference.id, reference.imageUrl, roi.id,
-    layout.x, layout.y, layout.width, layout.height,
-  ].join(':');
+  const cacheKey = [reference.id, reference.imageUrl, roi.id, layout.x, layout.y, layout.width, layout.height].join(':');
   const cached = referenceCache.get(cacheKey);
   if (cached) return cached;
-
   const promise = new Promise<Float32Array | null>((resolve) => {
     if (!reference.imageUrl) return resolve(null);
     const image = new Image();
@@ -84,21 +78,63 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
   return promise;
 }
 
-function currentRoiPatch(frame: GrayscaleImage, colorFrame: ImageData | null, roi: InspectionROI): Float32Array | null {
-  const width = Math.max(0.02, Math.min(1, roi.width ?? roi.radius * 2));
-  const height = Math.max(0.02, Math.min(1, roi.height ?? roi.radius * 2));
-  const left = Math.round((roi.x - width / 2) * frame.width);
-  const top = Math.round((roi.y - height / 2) * frame.height);
-  const cropWidth = Math.round(width * frame.width);
-  const cropHeight = Math.round(height * frame.height);
+interface RoiFrameGeometry {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+}
+
+function mapRoiToFrame(
+  frame: GrayscaleImage,
+  roi: InspectionROI,
+  alignment: AlignmentResult,
+  masterWidth: number,
+  masterHeight: number
+): RoiFrameGeometry | null {
+  if (!alignment.success || masterWidth <= 0 || masterHeight <= 0 ||
+      !Number.isFinite(alignment.scale) || alignment.scale <= 0) return null;
+
+  // Match the contain/letterbox coordinate mapping used by AlignmentEngine.
+  const containScale = Math.min(frame.width / masterWidth, frame.height / masterHeight);
+  const renderedWidth = masterWidth * containScale;
+  const renderedHeight = masterHeight * containScale;
+  const offsetX = (frame.width - renderedWidth) / 2;
+  const offsetY = (frame.height - renderedHeight) / 2;
+  const sourceX = offsetX + roi.x * renderedWidth;
+  const sourceY = offsetY + roi.y * renderedHeight;
+  const radians = (alignment.rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const centerX = alignment.scale * (cos * sourceX - sin * sourceY) + alignment.translationX;
+  const centerY = alignment.scale * (sin * sourceX + cos * sourceY) + alignment.translationY;
+
+  const roiWidth = Math.max(0.02, Math.min(1, roi.width ?? roi.radius * 2)) * renderedWidth * alignment.scale;
+  const roiHeight = Math.max(0.02, Math.min(1, roi.height ?? roi.radius * 2)) * renderedHeight * alignment.scale;
+  // Enclose the rotated rectangle in a frame-aligned crop.
+  const width = Math.abs(cos) * roiWidth + Math.abs(sin) * roiHeight;
+  const height = Math.abs(sin) * roiWidth + Math.abs(cos) * roiHeight;
+  const left = Math.round(centerX - width / 2);
+  const top = Math.round(centerY - height / 2);
+  const cropWidth = Math.round(width);
+  const cropHeight = Math.round(height);
   if (cropWidth < 2 || cropHeight < 2 || left < 0 || top < 0 ||
       left + cropWidth > frame.width || top + cropHeight > frame.height) return null;
+  return { left, top, width: cropWidth, height: cropHeight, centerX, centerY };
+}
 
+function currentRoiPatch(
+  frame: GrayscaleImage,
+  colorFrame: ImageData | null,
+  geometry: RoiFrameGeometry
+): Float32Array {
   const gray = new Float32Array(PATCH_SIZE * PATCH_SIZE);
   for (let py = 0; py < PATCH_SIZE; py++) {
-    const sourceY = top + Math.min(cropHeight - 1, Math.floor((py / PATCH_SIZE) * cropHeight));
+    const sourceY = geometry.top + Math.min(geometry.height - 1, Math.floor((py / PATCH_SIZE) * geometry.height));
     for (let px = 0; px < PATCH_SIZE; px++) {
-      const sourceX = left + Math.min(cropWidth - 1, Math.floor((px / PATCH_SIZE) * cropWidth));
+      const sourceX = geometry.left + Math.min(geometry.width - 1, Math.floor((px / PATCH_SIZE) * geometry.width));
       const index = py * PATCH_SIZE + px;
       if (colorFrame && colorFrame.width === frame.width && colorFrame.height === frame.height) {
         const i = (sourceY * colorFrame.width + sourceX) * 4;
@@ -142,11 +178,6 @@ export class ROIInspector {
     referenceImages: ReferenceImage[] = [],
     colorFrame: ImageData | null = null
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
-    void alignment;
-    void tolerance;
-    void masterWidth;
-    void masterHeight;
-
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl));
     const okReferences = usableReferences.filter((reference) => (reference.kind || 'OK') === 'OK');
     const ngReferences = usableReferences.filter((reference) => reference.kind === 'NG');
@@ -154,18 +185,25 @@ export class ROIInspector {
     let matchedRoiCount = 0;
 
     for (const roi of rois) {
-      const current = currentRoiPatch(frame, colorFrame, roi);
+      const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
+      const current = geometry ? currentRoiPatch(frame, colorFrame, geometry) : null;
       if (!current || okReferences.length === 0 || ngReferences.length === 0) {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: geometry
+            ? { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height }
+            : { x: roi.x, y: roi.y },
           actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
           isWithinTolerance: false, confidence: 0, isPresent: false,
           evidence: 'UNCERTAIN', status: 'WARNING',
-          failureReason: !current
-            ? `${roi.name}: live ROI crop is outside the camera frame`
-            : 'Both OK and NG reference images are required for classification',
+          failureReason: !alignment.success
+            ? (alignment.errorMessage || 'Alignment was not verified')
+            : !geometry
+              ? `${roi.name}: transformed ROI crop is outside the camera frame`
+              : !current
+                ? `${roi.name}: live ROI crop is unavailable`
+                : 'Both OK and NG reference images are required for classification',
         });
         continue;
       }
@@ -184,7 +222,7 @@ export class ROIInspector {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: { x: roi.x, y: roi.y },
+          expectedTransformedPosition: { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height },
           actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
           isWithinTolerance: false, confidence: 0, isPresent: false,
           evidence: 'UNCERTAIN', status: 'WARNING',
@@ -196,26 +234,38 @@ export class ROIInspector {
       const bestOk = okMatches.reduce((best, item) => item.similarity > best.similarity ? item : best);
       const bestNg = ngMatches.reduce((best, item) => item.similarity > best.similarity ? item : best);
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
-      const passed = bestOk.similarity >= threshold && bestOk.similarity > bestNg.similarity;
+      const okConfirmed = bestOk.similarity >= threshold && bestOk.similarity > bestNg.similarity;
+      const ngConfirmed = bestNg.similarity >= threshold && bestNg.similarity > bestOk.similarity;
       const bestSimilarity = Math.max(bestOk.similarity, bestNg.similarity);
-      if (passed) matchedRoiCount++;
+
+      if (okConfirmed) matchedRoiCount++;
+      const uncertain = !okConfirmed && !ngConfirmed;
+      const status = okConfirmed ? 'PASS' : ngConfirmed ? 'FAIL' : 'WARNING';
+      const reason = okConfirmed
+        ? undefined
+        : ngConfirmed
+          ? `${roi.name}: matched approved NG reference (${Math.round(bestNg.similarity * 100)}%; ${bestNg.reference.label})`
+          : `${roi.name}: neither OK nor NG reference met the ${Math.round(threshold * 100)}% confidence threshold (OK ${Math.round(bestOk.similarity * 100)}%, NG ${Math.round(bestNg.similarity * 100)}%); result requires review`;
 
       results.push({
         roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
         masterPosition: { x: roi.x, y: roi.y },
-        expectedTransformedPosition: { x: roi.x, y: roi.y },
-        actualDetectedPosition: { x: roi.x, y: roi.y },
-        positionOffsetPx: 0, positionOffsetMm: 0,
-        isWithinTolerance: passed,
+        expectedTransformedPosition: { x: geometry.centerX / frame.width, y: geometry.centerY / frame.height },
+        // Patch similarity classifies the crop but does not localize an object center.
+        // Do not fabricate a detected coordinate or zero positional offset.
+        actualDetectedPosition: null, positionOffsetPx: 0, positionOffsetMm: 0,
+        isWithinTolerance: okConfirmed,
         confidence: Math.round(bestSimilarity * 100) / 100,
-        isPresent: true,
-        evidence: 'PRESENT',
-        status: passed ? 'PASS' : 'FAIL',
-        failureReason: passed ? undefined :
-          `${roi.name}: classified NG; best OK ${Math.round(bestOk.similarity * 100)}% (${bestOk.reference.label}) vs best NG ${Math.round(bestNg.similarity * 100)}% (${bestNg.reference.label})`,
+        isPresent: okConfirmed,
+        evidence: uncertain ? 'UNCERTAIN' : 'PRESENT',
+        status,
+        failureReason: reason,
       });
     }
 
+    // Tolerances are enforced by the alignment transform before ROI inspection.
+    // The current ROI matcher does not independently localize object centers.
+    void tolerance;
     return { roiResults: results, extraObjects: [], matchedRoiCount };
   }
 }
