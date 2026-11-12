@@ -105,8 +105,11 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
   const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
+  const referencesRequiredForUpload = eightPointMode
+    ? references.filter((reference) => (reference.kind || 'OK') === 'OK')
+    : references;
   const allReferencesUploaded = okReferences.length >= 1 && (eightPointMode || ngReferences.length >= 1) && referenceClassesValid &&
-    references.every((reference) => Boolean(reference.imageUrl?.trim()));
+    referencesRequiredForUpload.every((reference) => Boolean(reference.imageUrl?.trim()));
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
