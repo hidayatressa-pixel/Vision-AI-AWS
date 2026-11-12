@@ -73,12 +73,17 @@ const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
 
-const eightRois = Array.from({ length: 8 }, (_, index) => ({
+const eightPointPositions = [
+  [0.1, 0.2], [0.3, 0.2], [0.6, 0.2], [0.8, 0.2],
+  [0.4, 0.45], [0.6, 0.45],
+  [0.4, 0.7], [0.6, 0.7],
+];
+const eightRois = eightPointPositions.map(([x, y], index) => ({
   id: `slot-${index + 1}`,
   name: `Bolt ${index + 1}`,
   objectType: 'screw',
-  x: 0.1 + (index % 4) * 0.2,
-  y: 0.2 + Math.floor(index / 4) * 0.25,
+  x,
+  y,
   radius: 0.04,
   width: 0.08,
   height: 0.08,
@@ -104,6 +109,8 @@ const eightResults = eightRois.map((roi, index) => ({
 const allEight = applyEightPointPresence(eightRois, eightResults, 800, 600);
 assert.equal(allEight.enabled, true, 'eight required screw ROIs should activate the point engine');
 assert.equal(allEight.detectedCount, 8, 'all eight slots should be counted independently');
+const shuffledEight = applyEightPointPresence([...eightRois].reverse(), [...eightResults].reverse(), 800, 600);
+assert.equal(shuffledEight.roiResults[0].roiId, 'slot-1', 'slot IDs must follow Master top-to-bottom, left-to-right layout rather than array order');
 assert.deepEqual(allEight.roiResults.map((item) => item.inspectionPointId), ['P1','P2','P3','P4','P5','P6','P7','P8']);
 const oneMissing = applyEightPointPresence(eightRois, eightResults.map((item, index) => index === 5
   ? { ...item, actualDetectedPosition: null, isPresent: false, evidence: 'ABSENT', status: 'FAIL', isWithinTolerance: false }
@@ -124,7 +131,7 @@ assert.equal(applyEightPointPresence(eightRois.slice(0, 7), eightResults.slice(0
   'legacy Masters with a non-eight-point ROI count must remain unchanged');
 
 console.log(JSON.stringify({
-  passed: 23,
+  passed: 24,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
