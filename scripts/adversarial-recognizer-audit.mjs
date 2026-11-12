@@ -23,7 +23,11 @@ const sameDifferentLight = describePatch(makeBolt({ background: 190, object: 75 
 const missing = describePatch(new Float32Array(SIZE * SIZE).fill(150), SIZE, 'contrast');
 const shifted = describePatch(makeBolt({ centerX: 43, centerY: 32 }), SIZE, 'contrast');
 const wrongSize = describePatch(makeBolt({ radius: 7 }), SIZE, 'contrast');
-const wrongShape = describePatch(makeBolt({ shaft: false }), SIZE, 'contrast');
+const roundObject = new Float32Array(SIZE * SIZE).fill(150);
+for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+  if ((x - 32) ** 2 + (y - 32) ** 2 <= 13 ** 2) roundObject[y * SIZE + x] = 35;
+}
+const wrongShape = describePatch(roundObject, SIZE, 'contrast');
 
 assert.equal(ok.present, true, 'bolt reference should be detected');
 assert.equal(missing.present, false, 'uniform missing-object crop should be absent');
@@ -31,7 +35,7 @@ assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should r
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
 assert.ok(compareDescriptors(ok, shifted) < compareDescriptors(ok, sameDifferentLight), 'position shift must reduce feature similarity');
 assert.ok(compareDescriptors(ok, wrongSize) < compareDescriptors(ok, sameDifferentLight), 'size change must reduce feature similarity');
-assert.ok(compareDescriptors(ok, wrongShape) < 0.92, 'contour change must be distinguishable from the approved bolt shape');
+assert.ok(compareDescriptors(ok, wrongShape) < 0.9, 'contour change must be distinguishable from the approved bolt shape');
 assert.ok(Math.abs(wrongSize.areaRatio - ok.areaRatio) / ok.areaRatio > 0.35, 'size change must exceed the configured default size tolerance');
 
 // Forward-warp a reference crop into a shifted and rotated camera frame,
