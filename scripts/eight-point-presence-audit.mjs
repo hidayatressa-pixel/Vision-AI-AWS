@@ -9,12 +9,17 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const engine = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 
-const rois = Array.from({ length: 8 }, (_, index) => ({
+const slotCenters = [
+  [0.15, 0.18], [0.38, 0.18], [0.62, 0.18], [0.85, 0.18],
+  [0.42, 0.49], [0.62, 0.49],
+  [0.42, 0.80], [0.62, 0.80],
+];
+const rois = slotCenters.map(([x, y], index) => ({
   id: `P${index + 1}`,
   name: `Screw ${index + 1}`,
   objectType: 'screw',
-  x: 0.1 + (index % 4) * 0.2,
-  y: 0.2 + Math.floor(index / 4) * 0.3,
+  x,
+  y,
   radius: 0.035,
   width: 0.07,
   height: 0.07,
