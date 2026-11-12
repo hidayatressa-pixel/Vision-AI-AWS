@@ -52,6 +52,12 @@ function orderEightPointSlots(rois: InspectionROI[]): { ordered: InspectionROI[]
   };
 }
 
+/** Stable row-major P1..P8 IDs derived from Master coordinates. */
+export function getEightPointSlotIds(rois: InspectionROI[]): Map<string, string> {
+  const { ordered } = orderEightPointSlots(rois);
+  return new Map(ordered.map((roi, index) => [roi.id, `P${index + 1}`]));
+}
+
 export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
   return rois.length === EIGHT_POINT_COUNT &&
     rois.every((roi) =>
