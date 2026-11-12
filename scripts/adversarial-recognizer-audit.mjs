@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { applyEightPointPresence } from '../src/vision/eightPointPresenceEngine.js';
 import { describePatch, compareDescriptors, confirmsMissingObject, contourWithinTolerance, rectifyPatch } from '../src/vision/roiFeatureCore.js';
 
 const SIZE = 64;
@@ -71,8 +72,59 @@ assert.equal(bright.present, true, 'bright-on-dark polarity should detect a brig
 const dark = describePatch(makeBolt(), SIZE, 'dark_on_bright');
 assert.equal(dark.present, true, 'dark-on-bright polarity should detect a dark bolt');
 
+
+const eightRois = Array.from({ length: 8 }, (_, index) => ({
+  id: `slot-${index + 1}`,
+  name: `Bolt ${index + 1}`,
+  objectType: 'screw',
+  x: 0.1 + (index % 4) * 0.2,
+  y: 0.2 + Math.floor(index / 4) * 0.25,
+  radius: 0.04,
+  width: 0.08,
+  height: 0.08,
+  toleranceRadius: 0.05,
+  isRequired: true,
+  expectedObjectPresence: true,
+}));
+const eightResults = eightRois.map((roi, index) => ({
+  roiId: roi.id,
+  roiName: roi.name,
+  objectType: 'screw',
+  masterPosition: { x: roi.x, y: roi.y },
+  expectedTransformedPosition: { x: roi.x, y: roi.y },
+  actualDetectedPosition: { x: roi.x, y: roi.y },
+  positionOffsetPx: 0,
+  positionOffsetMm: null,
+  isWithinTolerance: true,
+  confidence: 0.96,
+  isPresent: true,
+  evidence: 'PRESENT',
+  status: 'PASS',
+}));
+const allEight = applyEightPointPresence(eightRois, eightResults, 800, 600);
+assert.equal(allEight.enabled, true, 'eight required screw ROIs should activate the point engine');
+assert.equal(allEight.detectedCount, 8, 'all eight slots should be counted independently');
+assert.deepEqual(allEight.roiResults.map((item) => item.inspectionPointId), ['P1','P2','P3','P4','P5','P6','P7','P8']);
+const oneMissing = applyEightPointPresence(eightRois, eightResults.map((item, index) => index === 5
+  ? { ...item, actualDetectedPosition: null, isPresent: false, evidence: 'ABSENT', status: 'FAIL', isWithinTolerance: false }
+  : item), 800, 600);
+assert.equal(oneMissing.missingCount, 1, 'one confirmed absent bolt should be assigned to its own slot');
+assert.equal(oneMissing.roiResults[5].inspectionPointId, 'P6');
+const oneUncertain = applyEightPointPresence(eightRois, eightResults.map((item, index) => index === 2
+  ? { ...item, evidence: 'UNCERTAIN', status: 'WARNING', isWithinTolerance: false }
+  : item), 800, 600);
+assert.equal(oneUncertain.uncertainCount, 1, 'uncertain evidence must remain unresolved');
+const duplicate = applyEightPointPresence(eightRois, eightResults.map((item, index) => index === 1
+  ? { ...item, actualDetectedPosition: { ...eightResults[0].actualDetectedPosition } }
+  : item), 800, 600);
+assert.equal(duplicate.uncertainCount, 2, 'one detected centroid cannot satisfy two distant slots');
+assert.equal(duplicate.roiResults[0].evidence, 'UNCERTAIN');
+assert.equal(duplicate.roiResults[1].evidence, 'UNCERTAIN');
+assert.equal(applyEightPointPresence(eightRois.slice(0, 7), eightResults.slice(0, 7), 800, 600).enabled, false,
+  'legacy Masters with a non-eight-point ROI count must remain unchanged');
+
 console.log(JSON.stringify({
-  passed: 16,
+  passed: 23,
   scores: {
     brightnessInvariant: compareDescriptors(ok, sameDifferentLight),
     missingObject: compareDescriptors(ok, missing),
