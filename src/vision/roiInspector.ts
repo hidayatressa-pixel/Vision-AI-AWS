@@ -309,6 +309,11 @@ export class ROIInspector {
         continue;
       }
 
+      const bestOk = okMatches.reduce((best, item) => item.score > best.score ? item : best);
+      const bestNg = ngMatches.reduce((best, item) => item.score > best.score ? item : best);
+      const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
+      const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
+
       if (!hasPresenceEvidence) {
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
@@ -324,15 +329,30 @@ export class ROIInspector {
       }
 
       if (expectedPresence && !currentShape.present) {
+        // Do not call a low-contrast/blurred object "missing" from presence
+        // segmentation alone. Require the live crop to match a labelled NG
+        // reference whose ROI explicitly shows the object absent.
+        const absentNgMatches = ngMatches.filter((item) => !item.referenceShape.present);
+        const bestAbsentNg = absentNgMatches.length > 0
+          ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
+          : null;
+        const missingConfirmed = Boolean(bestAbsentNg &&
+          bestAbsentNg.score >= threshold &&
+          bestAbsentNg.score - bestOk.score >= classMargin);
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
           expectedTransformedPosition: expectedFramePosition,
           actualDetectedPosition: null,
           positionOffsetPx: null, positionOffsetMm: null,
-          isWithinTolerance: false, confidence: currentShape.presenceConfidence,
-          isPresent: false, evidence: 'ABSENT', status: 'FAIL',
-          failureReason: `${roi.name}: expected ${roi.objectType} is missing from its configured ROI`,
+          isWithinTolerance: false,
+          confidence: missingConfirmed && bestAbsentNg ? Math.round(bestAbsentNg.score * 100) / 100 : currentShape.presenceConfidence,
+          isPresent: false,
+          evidence: missingConfirmed ? 'ABSENT' : 'UNCERTAIN',
+          status: missingConfirmed ? 'FAIL' : 'WARNING',
+          failureReason: missingConfirmed
+            ? `${roi.name}: missing ${roi.objectType} confirmed by NG reference ${bestAbsentNg?.reference.label}`
+            : `${roi.name}: object presence could not be confirmed and no matching missing-object NG reference proved absence`,
         });
         continue;
       }
@@ -365,10 +385,6 @@ export class ROIInspector {
         continue;
       }
 
-      const bestOk = okMatches.reduce((best, item) => item.score > best.score ? item : best);
-      const bestNg = ngMatches.reduce((best, item) => item.score > best.score ? item : best);
-      const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
-      const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
       const margin = bestOk.score - bestNg.score;
       const okConfirmed = bestOk.score >= threshold && margin >= classMargin;
       const ngConfirmed = bestNg.score >= threshold && margin <= -classMargin;
