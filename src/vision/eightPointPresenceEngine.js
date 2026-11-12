@@ -67,7 +67,8 @@ export function applyEightPointPresence(rois, roiResults, frameWidth, frameHeigh
     };
   }
 
-  const { rows, ordered } = orderEightSlots(rois);\n  const ids = ordered.map((roi) => roi.id);
+  const { rows, ordered } = orderEightSlots(rois);
+  const ids = ordered.map((roi) => roi.id);
   if (ids.some((id) => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== EXPECTED_POINT_COUNT) {
     return {
       enabled: true,
@@ -81,8 +82,21 @@ export function applyEightPointPresence(rois, roiResults, frameWidth, frameHeigh
     };
   }
 
+  if (rows.length !== 3 || rows[0].items.length !== 4 || rows[1].items.length !== 2 || rows[2].items.length !== 2) {
+    return {
+      enabled: true,
+      configurationValid: false,
+      expectedCount: EXPECTED_POINT_COUNT,
+      detectedCount: 0,
+      missingCount: 0,
+      uncertainCount: EXPECTED_POINT_COUNT,
+      roiResults,
+      issues: ['Eight-point Master layout must contain three rows arranged 4-2-2 from top to bottom'],
+    };
+  }
+
   const byId = new Map((roiResults || []).map((result) => [result.roiId, result]));
-  const points = rois.map((roi, index) => {
+  const points = ordered.map((roi, index) => {
     const pointId = `P${index + 1}`;
     const result = byId.get(roi.id);
     if (!result) {
