@@ -75,6 +75,7 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       (roi.expectedObjectPresence === undefined || typeof roi.expectedObjectPresence === 'boolean') &&
       (roi.minClassMargin === undefined || (Number.isFinite(roi.minClassMargin) && roi.minClassMargin >= 0.02 && roi.minClassMargin <= 0.3)) &&
       (roi.sizeToleranceRatio === undefined || (Number.isFinite(roi.sizeToleranceRatio) && roi.sizeToleranceRatio >= 0.05 && roi.sizeToleranceRatio <= 1)) &&
+      (roi.shapeToleranceRatio === undefined || (Number.isFinite(roi.shapeToleranceRatio) && roi.shapeToleranceRatio >= 0.05 && roi.shapeToleranceRatio <= 0.4)) &&
       ['screw', 'connector', 'clip', 'label', 'component'].includes(roi.objectType) &&
       (roi.expectedPolarity === undefined || ['bright_on_dark', 'dark_on_bright', 'contrast'].includes(roi.expectedPolarity));
   });
