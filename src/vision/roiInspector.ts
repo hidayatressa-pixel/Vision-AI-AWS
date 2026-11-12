@@ -9,7 +9,7 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
-import { compareDescriptors, describePatch, rectifyPatch } from './roiFeatureCore.js';
+import { compareDescriptors, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
 
 const PATCH_SIZE = 64;
@@ -388,6 +388,8 @@ export class ROIInspector {
         (currentShape.centroidY - referenceCentroid.centroidY) * geometry.height
       );
       const sizeTolerance = Math.max(0.05, Math.min(1, roi.sizeToleranceRatio ?? 0.35));
+      const shapeTolerance = Math.max(0.05, Math.min(0.4, roi.shapeToleranceRatio ?? 0.10));
+      const shapeOk = contourWithinTolerance(currentShape, referenceCentroid, shapeTolerance);
       const relativeSizeChange = Math.abs(currentShape.areaRatio - referenceCentroid.areaRatio) /
         Math.max(referenceCentroid.areaRatio, 0.001);
       const globalPixelTolerance = Number.isFinite(tolerance.maxPositionOffsetPx)
@@ -404,6 +406,9 @@ export class ROIInspector {
       } else if (!sizeOk) {
         status = 'FAIL';
         reason = `${roi.name}: object foreground size changed ${(relativeSizeChange * 100).toFixed(1)}% (limit ${(sizeTolerance * 100).toFixed(1)}%)`;
+      } else if (!shapeOk) {
+        status = 'FAIL';
+        reason = `${roi.name}: object contour/shape geometry differs from the OK Master beyond the configured tolerance (${(shapeTolerance * 100).toFixed(0)}%)`;
       } else if (ngConfirmed) {
         status = 'FAIL';
         reason = `${roi.name}: matched approved NG reference (${Math.round(bestNg.score * 100)}%; ${bestNg.reference.label})`;
