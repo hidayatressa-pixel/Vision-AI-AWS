@@ -132,7 +132,7 @@ export class RuleEngine {
       primaryReason: defects[0]?.message || 'Visual mismatch detected',
       defects,
       expectedCount,
-      detectedCount: passedCount,
+      detectedCount: classifiedCount,
     };
   }
 }
