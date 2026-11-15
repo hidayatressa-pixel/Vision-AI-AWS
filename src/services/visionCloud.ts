@@ -116,12 +116,12 @@ export function markInspectionLifecycleComplete(status: 'OK' | 'NG' | 'INVALID' 
   lastLifecycleStatus = status;
 }
 
-export interface AwsSessionContext {
+export interface VisionSessionContext {
   productCode: string;
   revisionCode: string;
 }
 
-export async function activateAwsSession(context: AwsSessionContext): Promise<void> {
+export async function activateVisionSession(context: VisionSessionContext): Promise<void> {
   const response = await postAuthenticated('/v1/sessions', {
     action: 'START_SESSION',
     context: { ...context, stationId: 'VISION-AI-AWS' },
@@ -136,7 +136,7 @@ export async function activateAwsSession(context: AwsSessionContext): Promise<vo
   }
 }
 
-export async function endAwsSession(context: AwsSessionContext): Promise<void> {
+export async function endVisionSession(context: VisionSessionContext): Promise<void> {
   const response = await postAuthenticated('/v1/sessions', {
     action: 'END_SESSION',
     context: { ...context, stationId: 'VISION-AI-AWS' },
@@ -151,7 +151,7 @@ export async function endAwsSession(context: AwsSessionContext): Promise<void> {
   }
 }
 
-export async function saveConfigurationToAws(configuration: {
+export async function saveConfigurationToVisionBackend(configuration: {
   setupStep: number;
   camera: { sourceMode: string; selectedDeviceId: string };
   master: unknown;
