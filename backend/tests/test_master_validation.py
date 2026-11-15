@@ -1,6 +1,6 @@
 import unittest
 
-from backend.app.main import _validate_master_revision
+from backend.app.main import _canonical_checksum, _validate_master_revision
 
 
 def valid_revision():
@@ -52,6 +52,11 @@ def valid_revision():
 
 
 class MasterRevisionValidationTests(unittest.TestCase):
+    def test_checksum_ignores_embedded_previous_checksum(self):
+        payload = {"revisionCode": "REV-01", "inspectionROIs": [], "checksum": "old-value"}
+        changed_metadata = {**payload, "checksum": "different-old-value"}
+        self.assertEqual(_canonical_checksum(payload), _canonical_checksum(changed_metadata))
+
     def test_complete_master_with_positive_and_negative_reference_is_valid(self):
         self.assertEqual(_validate_master_revision(valid_revision()), [])
 
