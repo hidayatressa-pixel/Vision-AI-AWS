@@ -37,9 +37,29 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
   const currentMaster = masters.find((m) => m.id === selectedMasterId) || masters[0];
   const previewRevision = currentMaster?.revisions.find((r) => r.id === currentMaster.activeRevisionId) || currentMaster?.revisions[0];
   const activeMasterChecks = activeRevision ? getMasterValidationChecks(activeRevision) : [];
-  const activeMasterReady = Boolean(activeRevision) && activeMasterChecks.every((check) => check.valid);
+  const activeMasterReady = Boolean(
+    activeMaster &&
+    activeRevision &&
+    activeRevision.masterId === activeMaster.id &&
+    activeMasterChecks.length > 0 &&
+    activeMasterChecks.every((check) => check.valid)
+  );
 
   const handleActivateRevision = async (master: MasterProduct, revisionId: string) => {
+    const candidate = master.revisions.find((revision) => revision.id === revisionId);
+    if (!candidate) return;
+
+    // A revision must pass the exact same runtime Master checks before it can
+    // replace the currently active production configuration.
+    const failedChecks = getMasterValidationChecks(candidate).filter((check) => !check.valid);
+    if (failedChecks.length > 0) {
+      window.alert(
+        'Revision activation blocked. Fix these Master checks first: ' +
+        failedChecks.map((check) => check.label).join(', ')
+      );
+      return;
+    }
+
     const updated: MasterProduct = {
       ...master,
       activeRevisionId: revisionId,
@@ -65,16 +85,19 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       createdBy: 'Quality Engineer',
     };
 
+    // A clone is an engineering draft, never a production activation.
+    // Keep the previous active revision untouched while the draft is calibrated
+    // and validated. The engineer can edit the draft immediately.
     const updated: MasterProduct = {
       ...master,
       revisions: [...master.revisions, clonedRev],
-      activeRevisionId: newRevId,
+      activeRevisionId: master.activeRevisionId,
       updatedAt: new Date().toISOString(),
     };
 
     await dbService.saveMaster(updated);
     onRefreshMasters();
-    onSelectMaster(updated, newRevId);
+    onOpenSetupModal(updated, clonedRev);
   };
 
   return (
@@ -85,7 +108,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
           <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-400">Setup 02 / 05</div>
           <h2 className="text-xl font-bold text-white mt-1">MASTER PART SETUP</h2>
           <p className="text-xs text-slate-400 font-mono mt-1">
-            Select the approved master and complete its validation before saving the station configuration.
+            Select a valid master configuration. An unreadable or incomplete Master must never enter Live Inspection.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -95,7 +118,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
           <button
             type="button"
             onClick={onContinueSetup}
-            disabled={!activeMaster}
+            disabled={!activeMasterReady}
             className="px-5 py-2.5 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed hover:bg-cyan-400"
           >
             NEXT: VALIDATE SETUP →
