@@ -420,21 +420,33 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
     if not any(ref.get("kind") == "NG" for ref in valid_refs):
         errors.append("At least one uploaded negative NG reference is required")
 
-    screw_rois = [roi for roi in rois if isinstance(roi, dict) and roi.get("objectType") == "screw" and roi.get("expectedObjectPresence") is not False]
+    screw_rois = [
+        roi for roi in rois
+        if isinstance(roi, dict) and roi.get("objectType") == "screw"
+        and roi.get("expectedObjectPresence") is not False
+        and all(isinstance(roi.get(key), (int, float)) for key in ("x", "y", "radius"))
+    ]
     if len(screw_rois) == 8:
-        ordered_y = sorted(float(roi["y"]) for roi in screw_rois if isinstance(roi.get("y"), (int, float)))
-        rows: list[list[float]] = []
-        for center_y in ordered_y:
-            if not rows or abs(center_y - sum(rows[-1]) / len(rows[-1])) > 0.08:
-                rows.append([center_y])
-            else:
-                rows[-1].append(center_y)
-        if [len(row) for row in rows] != [4, 2, 2]:
+        heights = sorted(float(roi.get("height") or float(roi["radius"]) * 2) for roi in screw_rois)
+        row_tolerance = max(0.02, heights[len(heights) // 2] * 0.75)
+        rows: list[dict[str, Any]] = []
+        for roi in sorted(screw_rois, key=lambda item: (float(item["y"]), float(item["x"]))):
+            center_y = float(roi["y"])
+            row = next((candidate for candidate in rows if abs(candidate["center_y"] - center_y) <= row_tolerance), None)
+            if row is None:
+                row = {"center_y": center_y, "items": []}
+                rows.append(row)
+            row["items"].append(roi)
+            row["center_y"] = sum(float(item["y"]) for item in row["items"]) / len(row["items"])
+        rows.sort(key=lambda item: item["center_y"])
+        if [len(row["items"]) for row in rows] != [4, 2, 2]:
             errors.append("Eight-point screw Master must preserve the 4-2-2 row layout")
         for index, first in enumerate(screw_rois):
             for second in screw_rois[index + 1:]:
-                fw, fh = float(first.get("width") or float(first["radius"]) * 2), float(first.get("height") or float(first["radius"]) * 2)
-                sw, sh = float(second.get("width") or float(second["radius"]) * 2), float(second.get("height") or float(second["radius"]) * 2)
+                fw = float(first.get("width") or float(first["radius"]) * 2)
+                fh = float(first.get("height") or float(first["radius"]) * 2)
+                sw = float(second.get("width") or float(second["radius"]) * 2)
+                sh = float(second.get("height") or float(second["radius"]) * 2)
                 if abs(float(first["x"]) - float(second["x"])) * 2 < fw + sw and abs(float(first["y"]) - float(second["y"])) * 2 < fh + sh:
                     errors.append("Eight-point screw ROIs must not overlap")
                     break
