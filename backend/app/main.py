@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -95,7 +96,7 @@ async def require_user(
         raise HTTPException(status_code=401, detail="Supabase sign-in required")
     if not SUPABASE_URL or not SUPABASE_PUBLISHABLE_KEY:
         raise HTTPException(status_code=503, detail="Supabase Auth is not configured")
-    if not ALLOWED_EMAILS:
+    if not ALLOWED_EMAILS and not ADMIN_EMAILS:
         raise HTTPException(status_code=503, detail="Backend user allowlist is not configured")
 
     async with httpx.AsyncClient(timeout=8.0) as client:
@@ -112,16 +113,57 @@ async def require_user(
 
     user = response.json()
     email = str(user.get("email") or "").strip().lower()
-    if not email or email not in ALLOWED_EMAILS:
+    if not email or (email not in ALLOWED_EMAILS and email not in ADMIN_EMAILS):
         raise HTTPException(status_code=403, detail="User is not authorized for Vision-AI")
     return user
 
 
-async def require_admin(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
+    user_id = str(user.get("id") or "")
     email = str(user.get("email") or "").strip().lower()
-    if not ADMIN_EMAILS or email not in ADMIN_EMAILS:
+    with db.connection() as connection:
+        if email and email in ADMIN_EMAILS:
+            connection.execute(
+                """
+                insert into public.vision_user_roles (user_id, email, role, is_active)
+                values (%s, %s, 'ADMIN', true)
+                on conflict (user_id) do update
+                  set email = excluded.email, role = 'ADMIN', is_active = true, updated_at = now()
+                """,
+                (user_id, email),
+            )
+            return "ADMIN"
+        row = connection.execute(
+            "select role from public.vision_user_roles where user_id = %s and is_active = true",
+            (user_id,),
+        ).fetchone()
+    return str(row["role"]) if row else "OPERATOR"
+
+
+def require_roles(*allowed_roles: str):
+    def dependency(
+        user: dict[str, Any] = Depends(require_user),
+        db: ConnectionPool = Depends(get_pool),
+    ) -> dict[str, Any]:
+        role = resolve_user_role(user, db)
+        if role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Insufficient Vision-AI role")
+        return {**user, "vision_role": role}
+    return dependency
+
+
+require_engineer = require_roles("ENGINEER", "ADMIN")
+require_approver = require_roles("APPROVER", "ADMIN")
+
+
+async def require_admin(
+    user: dict[str, Any] = Depends(require_user),
+    db: ConnectionPool = Depends(get_pool),
+) -> dict[str, Any]:
+    role = resolve_user_role(user, db)
+    if role != "ADMIN":
         raise HTTPException(status_code=403, detail="Administrator access required")
-    return user
+    return {**user, "vision_role": role}
 
 
 class FlexibleModel(BaseModel):
@@ -182,6 +224,25 @@ class InspectionHistoryRecord(FlexibleModel):
 
 class AnalyzeRequest(BaseModel):
     image_base64: str
+
+
+class MasterSaveRequest(BaseModel):
+    master: dict[str, Any]
+    revision: dict[str, Any]
+
+
+class RoleAssignmentRequest(BaseModel):
+    email: str
+    role: str
+    is_active: bool = True
+
+
+class RevisionDecisionRequest(BaseModel):
+    reason: str = ""
+
+
+class StationAssignmentRequest(BaseModel):
+    station_id: str = Field(min_length=1, max_length=120)
 
 
 @app.get("/health")
