@@ -126,6 +126,11 @@ class DatabaseService {
     });
   }
 
+  public async getUserStations(userId: string): Promise<string[]> {
+    const result = await this.requestEndpoint<{ station_ids: string[] }>('/v1/admin/users/' + encodeURIComponent(userId) + '/stations');
+    return result.station_ids || [];
+  }
+
   public async assignUserStations(userId: string, stationIds: string[]): Promise<void> {
     await this.requestEndpoint('/v1/admin/users/' + encodeURIComponent(userId) + '/stations', {
       method: 'POST', body: JSON.stringify({ station_ids: stationIds }),
