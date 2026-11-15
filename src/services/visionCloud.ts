@@ -74,6 +74,8 @@ export function sendInspectionResult(params: {
   alignmentConfidence: number;
   roiConfidences: number[];
   jig: string;
+  masterId: string;
+  masterRevisionId: string;
   inspectionId: string;
   productCode: string;
   revisionCode: string;
@@ -149,7 +151,7 @@ export async function activateVisionSession(context: VisionSessionContext): Prom
 export async function endVisionSession(context: VisionSessionContext): Promise<void> {
   const response = await postAuthenticated('/v1/sessions', {
     action: 'END_SESSION',
-    context: { ...context, stationId: 'VISION-AI-AWS' },
+    context: { ...context, stationId: VISION_STATION_ID },
     timestamp: new Date().toISOString(),
   });
   if (!response.ok) {
