@@ -240,6 +240,12 @@ class MasterSaveRequest(BaseModel):
     revision: dict[str, Any]
 
 
+class MasterMetadataRequest(BaseModel):
+    product_code: str = Field(min_length=1, max_length=120)
+    product_name: str = Field(min_length=1, max_length=240)
+    description: str = ""
+
+
 class RoleAssignmentRequest(BaseModel):
     email: str
     role: str
@@ -450,6 +456,26 @@ def list_masters(
             })
             grouped[mid]["revisions"].append(item)
     return list(grouped.values())
+
+
+@app.patch("/v1/masters/{master_id}")
+def update_master_metadata(
+    master_id: str, payload: MasterMetadataRequest,
+    user: dict[str, Any] = Depends(require_engineer), db: ConnectionPool = Depends(get_pool),
+):
+    actor = str(user.get("id"))
+    with db.connection() as connection, connection.transaction():
+        row = connection.execute(
+            """update public.vision_masters
+               set product_code=%s, product_name=%s, description=%s, updated_by=%s, updated_at=now()
+               where id=%s returning id""",
+            (payload.product_code.strip(), payload.product_name.strip(), payload.description, actor, master_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Master not found")
+        _audit(connection, master_id, None, actor, "MASTER_METADATA_UPDATED",
+               {"product_code": payload.product_code, "product_name": payload.product_name})
+    return {"updated": True, "master_id": master_id}
 
 
 @app.post("/v1/masters", status_code=status.HTTP_201_CREATED)
