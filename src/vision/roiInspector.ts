@@ -9,7 +9,7 @@
 import { AlignmentResult, ExtraDetectedObject, ROIInspectionResult } from '../types/inspection';
 import { InspectionROI, ReferenceImage, ReferenceRoiLayout, ToleranceConfig } from '../types/master';
 import { GrayscaleImage } from './imageUtils';
-import { compareDescriptors, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
+import { compareDescriptors, confirmsEightPointAbsence, confirmsMissingObject, contourWithinTolerance, describePatch, rectifyPatch } from './roiFeatureCore.js';
 import type { RoiShapeDescriptor } from './roiFeatureCore.js';
 import { getEightPointSlotIds, isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
@@ -343,8 +343,14 @@ export class ROIInspector {
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
         const missingConfirmed = eightPointPresenceMode
-          ? currentShape.presenceConfidence >= Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)) &&
-            bestOk.score < Math.min(0.25, threshold - classMargin)
+          ? confirmsEightPointAbsence(
+            currentShape.present,
+            currentShape.presenceConfidence,
+            bestOk.referenceShape.present,
+            bestOk.shapeScore,
+            Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)),
+            0.35
+          )
           : Boolean(bestAbsentNg && confirmsMissingObject(
             currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
           ));
