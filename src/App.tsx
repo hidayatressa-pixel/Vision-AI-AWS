@@ -35,7 +35,7 @@ export default function App() {
   if (isPhoneCameraRoute()) {
     return <PhoneCameraView />;
   }
-  const [entryScreen, setEntryScreen] = useState<'welcome' | 'pin' | 'app'>('welcome');
+  const [entryScreen, setEntryScreen] = useState<'welcome' | 'app'>('welcome');
   const [activeTab, setActiveTab] = useState<ActiveTab>('CAMERA_SETUP');
   const [role] = useState<UserRole>('OPERATOR');
   const [isMuted, setIsMuted] = useState(false);
@@ -185,8 +185,7 @@ export default function App() {
   const masterReady = Boolean(activeMaster && activeRevision) && masterValidationChecks.every((check) => check.valid);
 
   const handleNavigate = (tab: ActiveTab) => {
-    // Initial setup behaves like an authentication gate. Until setup is
-    // validated, navigation cannot bypass the required sequence.
+    // Keep the required setup sequence intact; the public demo has no client-side PIN gate.
     if (sessionRecoveryRequired && tab !== 'INSPECTION' && tab !== 'HISTORY') return;
     if (setupStep < 5) return;
     if (sessionActive && tab !== 'INSPECTION' && tab !== 'HISTORY') return;
@@ -397,7 +396,7 @@ export default function App() {
             <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/10 p-3 text-cyan-300"><ScanLine size={28} /></div>
             <div><div className="text-xs font-mono tracking-[0.25em] text-cyan-300">INTELLIGENT VISUAL INSPECTION</div><div className="text-lg font-black tracking-wide">VISION-AI AWS</div></div>
           </div>
-          {entryScreen === 'welcome' ? (
+          {entryScreen === 'welcome' && (
             <div className="text-center">
               <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300"><ShieldCheck size={42} strokeWidth={1.5} /></div>
               <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-slate-500">Inspection station</div>
@@ -419,7 +418,7 @@ export default function App() {
         <span className="rvi-system-ticker-label">SYSTEM MESSAGE</span>
         <div className="rvi-system-ticker-window"><div className="rvi-system-ticker-track"><span>{systemMessage}</span><span aria-hidden="true">{systemMessage}</span></div></div>
       </div>
-      {!sessionActive && <div className="mx-auto flex w-full max-w-[1500px] justify-end px-3 pt-2"><button type="button" onClick={handleEntryLock} className="rounded-lg border border-slate-800 px-3 py-1.5 text-[10px] font-mono text-slate-500 hover:border-amber-400/40 hover:text-amber-300">LOCK ENGINEERING ACCESS</button></div>}
+      {!sessionActive && <div className="mx-auto flex w-full max-w-[1500px] justify-end px-3 pt-2"><button type="button" onClick={handleEntryLock} className="rounded-lg border border-slate-800 px-3 py-1.5 text-[10px] font-mono text-slate-500 hover:border-amber-400/40 hover:text-amber-300">RETURN TO WELCOME</button></div>}
       <main className="rvi-main flex-1 max-w-[1500px] w-full mx-auto p-3 sm:p-5 lg:p-6">
         {setupStep === 1 && (
           <CameraCalibrationView
