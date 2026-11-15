@@ -119,6 +119,7 @@ export interface MasterRevision {
   checksum?: string;
   approvedBy?: string | null;
   submittedAt?: string | null;
+  submittedBy?: string | null;
   approvedAt?: string | null;
   masterWidth: number;
   masterHeight: number;
