@@ -121,12 +121,18 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
     }
     let stationIds: string[] | null = null;
     if (requestedRole === 'OPERATOR') {
-      const stationInput = window.prompt(
-        'Comma-separated station IDs for this Operator (empty revokes all station access):',
-        'VISION-AI-AWS'
-      );
-      if (stationInput === null) return;
-      stationIds = [...new Set(stationInput.split(',').map((value) => value.trim()).filter(Boolean))];
+      try {
+        const currentStations = await dbService.getUserStations(userId);
+        const stationInput = window.prompt(
+          'Comma-separated station IDs for this Operator (empty revokes all station access):',
+          currentStations.join(', ') || 'VISION-AI-AWS'
+        );
+        if (stationInput === null) return;
+        stationIds = [...new Set(stationInput.split(',').map((value) => value.trim()).filter(Boolean))];
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Could not read current station assignments.');
+        return;
+      }
     }
     try {
       await dbService.assignUserRole(userId, email, requestedRole as 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN');
