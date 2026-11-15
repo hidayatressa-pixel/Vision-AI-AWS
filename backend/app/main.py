@@ -160,6 +160,14 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
     return str(row["role"])
 
 
+def require_active_user(
+    user: dict[str, Any] = Depends(require_user),
+    db: ConnectionPool = Depends(get_pool),
+) -> dict[str, Any]:
+    role = resolve_user_role(user, db)
+    return {**user, "vision_role": role}
+
+
 def require_roles(*allowed_roles: str):
     def dependency(
         user: dict[str, Any] = Depends(require_user),
@@ -834,7 +842,7 @@ def assign_master_revision(
 
 @app.get("/v1/stations/{station_id}/master")
 def get_station_master(
-    station_id: str, user: dict[str, Any] = Depends(require_user), db: ConnectionPool = Depends(get_pool),
+    station_id: str, user: dict[str, Any] = Depends(require_active_user), db: ConnectionPool = Depends(get_pool),
 ):
     with db.connection() as connection:
         row = connection.execute(
@@ -854,7 +862,7 @@ def get_station_master(
 @app.post("/v1/events", status_code=status.HTTP_202_ACCEPTED)
 def create_event(
     payload: VisionEvent,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     allowed_statuses = {"OK", "NG", "INVALID", "ERROR", "STANDBY"}
@@ -901,7 +909,7 @@ def create_event(
 @app.post("/v1/sessions", status_code=status.HTTP_202_ACCEPTED)
 def create_session(
     payload: SessionRequest,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     if payload.action not in {"START_SESSION", "END_SESSION"}:
@@ -960,7 +968,7 @@ def create_session(
 @app.post("/v1/configurations")
 def save_configuration(
     payload: ConfigurationRequest,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     if payload.action != "SAVE_CONFIGURATION":
@@ -1015,7 +1023,7 @@ def save_configuration(
 @app.get("/v1/configurations/{station_id}")
 def get_configuration(
     station_id: str,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     with db.connection() as connection:
@@ -1031,7 +1039,7 @@ def get_configuration(
 @app.post("/v1/inspection-history", status_code=status.HTTP_201_CREATED)
 def save_inspection_history(
     payload: InspectionHistoryRecord,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     data = payload.model_dump()
@@ -1077,7 +1085,7 @@ def save_inspection_history(
 @app.get("/v1/inspection-history")
 def get_inspection_history(
     limit: int = Query(default=500, ge=1, le=5000),
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
     with db.connection() as connection:
@@ -1101,7 +1109,7 @@ def clear_inspection_history(
 @app.post("/v1/analyze")
 def analyze(
     payload: AnalyzeRequest,
-    user: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_active_user),
 ):
     try:
         raw = base64.b64decode(payload.image_base64, validate=True)
