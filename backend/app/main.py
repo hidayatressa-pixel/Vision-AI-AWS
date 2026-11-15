@@ -425,6 +425,10 @@ def _validate_master_revision(payload: dict[str, Any], master_id: str | None = N
     if payload.get("roiBoundaryPolicy", "WARNING") not in ("STRICT", "WARNING", "DISABLED"):
         errors.append("ROI boundary policy is invalid")
 
+    inspection_profile = payload.get("inspectionProfile")
+    if inspection_profile is not None and inspection_profile not in ("STANDARD", "EIGHT_POINT_PRESENCE"):
+        errors.append("Inspection profile is invalid")
+
     rois = payload.get("inspectionROIs")
     if not isinstance(rois, list) or not rois:
         errors.append("At least one inspection ROI is required")
@@ -523,7 +527,12 @@ def _validate_master_revision(payload: dict[str, Any], master_id: str | None = N
         and roi.get("expectedObjectPresence") is not False
         and all(isinstance(roi.get(key), (int, float)) for key in ("x", "y", "radius"))
     ]
-    if len(screw_rois) == 8:
+    use_eight_point_profile = inspection_profile == "EIGHT_POINT_PRESENCE" or (
+        inspection_profile is None and len(rois) == 8 and len(screw_rois) == 8
+    )
+    if use_eight_point_profile:
+        if len(rois) != 8 or len(screw_rois) != 8:
+            errors.append("Eight-point presence profile requires exactly eight required screw ROIs")
         heights = sorted(float(roi.get("height") or float(roi["radius"]) * 2) for roi in screw_rois)
         row_tolerance = max(0.02, heights[len(heights) // 2] * 0.75)
         rows: list[dict[str, Any]] = []
