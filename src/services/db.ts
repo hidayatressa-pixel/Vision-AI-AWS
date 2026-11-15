@@ -126,6 +126,12 @@ class DatabaseService {
     });
   }
 
+  public async assignUserStations(userId: string, stationIds: string[]): Promise<void> {
+    await this.requestEndpoint('/v1/admin/users/' + encodeURIComponent(userId) + '/stations', {
+      method: 'POST', body: JSON.stringify({ station_ids: stationIds }),
+    });
+  }
+
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
     const token = await getSupabaseAccessToken();
     const method = (init.method || 'GET').toUpperCase();
