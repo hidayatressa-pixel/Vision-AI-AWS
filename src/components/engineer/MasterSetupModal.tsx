@@ -81,7 +81,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
       return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    const requiredKinds: Array<'OK' | 'NG'> = isEightPointPresenceCandidate(revision.inspectionROIs) ? ['OK'] : ['OK', 'NG'];
+    const requiredKinds: Array<'OK' | 'NG'> = ['OK', 'NG'];
     requiredKinds.forEach((kind) => {
       if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
         id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
@@ -558,7 +558,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               </h2>
               <p className="text-xs text-slate-400 font-mono">
                 {isEightPointPresenceMode
-                  ? 'Eight-point screw presence · one positive OK Master reference; NG references optional.'
+                  ? 'Eight-point screw presence · positive OK and validated empty-slot NG references are required.'
                   : 'Configure this product\'s inspection areas and any number of OK/NG reference examples.'}
               </p>
             </div>
@@ -645,7 +645,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     Reference Images · Flexible OK / NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; add more for robustness.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; both are required to distinguish the target area from an unrecognized background.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
@@ -690,7 +690,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
                           <div className="px-2 text-center text-[9px] font-mono font-bold text-amber-400">
-                            {isEightPointPresenceMode && reference.kind === 'NG' ? 'OPTIONAL NG' : 'UPLOAD REQUIRED'}
+                            {'UPLOAD REQUIRED'}
                           </div>
                         )}
                       </div>
