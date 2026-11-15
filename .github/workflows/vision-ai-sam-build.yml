@@ -1,6 +1,12 @@
 name: Vision AI SAM Build (No AWS CodeBuild)
 
 on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
