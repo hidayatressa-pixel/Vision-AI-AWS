@@ -133,6 +133,14 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
                 (user_id, email),
             )
             return "ADMIN"
+        connection.execute(
+            """
+            insert into public.vision_user_roles (user_id, email, role, is_active)
+            values (%s, %s, 'OPERATOR', true)
+            on conflict (user_id) do nothing
+            """,
+            (user_id, email),
+        )
         row = connection.execute(
             "select role from public.vision_user_roles where user_id = %s and is_active = true",
             (user_id,),
@@ -394,8 +402,6 @@ def assign_user_role(
             """,
             (user_id, payload.email.strip().lower(), payload.role, payload.is_active, actor_id),
         )
-        _audit(connection, "ROLE_ADMINISTRATION", None, actor_id, "USER_ROLE_ASSIGNED",
-               {"user_id": user_id, "email": payload.email.strip().lower(), "role": payload.role, "active": payload.is_active})
     return {"assigned": True, "user_id": user_id, "role": payload.role, "is_active": payload.is_active}
 
 
@@ -809,10 +815,6 @@ def save_inspection_history(
     ]
     values = [data.get(column) for column in columns]
     placeholders = ", ".join(["%s"] * len(columns))
-    updates = ", ".join(
-        f"{column} = excluded.{column}" for column in columns if column != "id"
-    )
-
     with db.connection() as connection:
         connection.execute(
             f"""
