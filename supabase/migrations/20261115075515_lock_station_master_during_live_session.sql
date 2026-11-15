@@ -8,8 +8,6 @@ declare
   latest_action text;
   latest_session_at timestamptz;
 begin
-  perform pg_advisory_xact_lock(hashtextextended(new.station_id, 0));
-
   select status into revision_status
   from public.vision_master_revisions
   where master_id = new.master_id and id = new.revision_id
