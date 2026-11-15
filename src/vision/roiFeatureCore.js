@@ -114,6 +114,31 @@ function ratioSimilarity(a,b,sensitivity=0.5){
   if(a<=0||b<=0)return a===b?1:0;
   return Math.exp(-Math.abs(Math.log(a/b))*sensitivity);
 }
+/**
+ * Confirm a missing screw in the eight-point presence profile.
+ * Absence is accepted only when the live patch has strong empty-slot evidence
+ * and its shape descriptor is clearly unlike the positive screw reference.
+ * Pixel similarity is intentionally excluded here because illumination and
+ * background texture can keep raw patch similarity high for an empty slot.
+ */
+export function confirmsEightPointAbsence(
+  currentPresent,
+  absenceConfidence,
+  positiveReferencePresent,
+  positiveReferenceShapeScore,
+  minAbsenceConfidence = 0.65,
+  maxPositiveShapeScore = 0.35
+) {
+  return currentPresent === false &&
+    positiveReferencePresent === true &&
+    Number.isFinite(absenceConfidence) &&
+    Number.isFinite(positiveReferenceShapeScore) &&
+    Number.isFinite(minAbsenceConfidence) &&
+    Number.isFinite(maxPositiveShapeScore) &&
+    absenceConfidence >= minAbsenceConfidence &&
+    positiveReferenceShapeScore <= maxPositiveShapeScore;
+}
+
 export function confirmsMissingObject(currentPresent, positiveOkScore, absentNgScore, threshold = 0.75, margin = 0.06) {
   return !currentPresent &&
     Number.isFinite(positiveOkScore) && Number.isFinite(absentNgScore) &&
