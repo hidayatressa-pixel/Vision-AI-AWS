@@ -191,6 +191,12 @@ class MasterRevisionValidationTests(unittest.TestCase):
         errors = _validate_master_revision(payload)
         self.assertTrue(any("requires exactly eight" in error for error in errors))
 
+    def test_explicit_eight_point_profile_requires_alignment_anchors(self):
+        payload = valid_eight_point_revision()
+        payload["anchors"] = []
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("requires at least three" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
