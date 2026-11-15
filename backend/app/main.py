@@ -426,7 +426,7 @@ def list_masters(
                    m.created_by, m.updated_by, m.created_at, m.updated_at,
                    r.id as revision_id, r.revision_code, r.revision_note, r.status,
                    r.revision_payload, r.checksum, r.created_by as revision_created_by,
-                   r.approved_by, r.created_at as revision_created_at,
+                   r.approved_by, r.submitted_by, r.created_at as revision_created_at,
                    r.updated_at as revision_updated_at, r.submitted_at, r.approved_at,
                    a.revision_id as assigned_revision_id
             from public.vision_masters m
@@ -455,6 +455,7 @@ def list_masters(
                 "status": row["status"], "checksum": row["checksum"],
                 "approvedBy": str(row["approved_by"]) if row["approved_by"] else None,
                 "submittedAt": row["submitted_at"].isoformat() if row["submitted_at"] else None,
+                "submittedBy": str(row["submitted_by"]) if row["submitted_by"] else None,
                 "approvedAt": row["approved_at"].isoformat() if row["approved_at"] else None,
             })
             grouped[mid]["revisions"].append(item)
@@ -538,7 +539,8 @@ def save_master_revision(
                on conflict (master_id,id) do update set
                  revision_code=excluded.revision_code, revision_note=excluded.revision_note,
                  status='DRAFT', revision_payload=excluded.revision_payload, checksum=excluded.checksum,
-                 submitted_at=null, approved_by=null, approved_at=null, updated_at=now()
+                 created_by=excluded.created_by, submitted_at=null, submitted_by=null,
+                 approved_by=null, approved_at=null, updated_at=now()
                where vision_master_revisions.status in ('DRAFT','REJECTED')""",
             (revision_id, master_id, str(revision.get("revisionCode") or ""),
              str(revision.get("revisionNote") or ""), Jsonb(revision), checksum, actor),
@@ -572,8 +574,8 @@ def submit_master_revision(
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
         connection.execute(
-            "update public.vision_master_revisions set status='PENDING_APPROVAL',submitted_at=now(),updated_at=now() where master_id=%s and id=%s",
-            (master_id, revision_id),
+            "update public.vision_master_revisions set status='PENDING_APPROVAL',submitted_at=now(),submitted_by=%s,updated_at=now() where master_id=%s and id=%s",
+            (actor, master_id, revision_id),
         )
         connection.execute(
             "insert into public.vision_master_approvals(master_id,revision_id,action,actor_id) values (%s,%s,'SUBMITTED',%s)",
@@ -591,15 +593,15 @@ def approve_master_revision(
     actor = str(user.get("id"))
     with db.connection() as connection, connection.transaction():
         row = connection.execute(
-            "select revision_payload,status,created_by from public.vision_master_revisions where master_id=%s and id=%s for update",
+            "select revision_payload,status,created_by,submitted_by from public.vision_master_revisions where master_id=%s and id=%s for update",
             (master_id, revision_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be approved")
-        if str(row["created_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: creator cannot approve own revision")
+        if str(row["submitted_by"]) == actor:
+            raise HTTPException(status_code=403, detail="Maker-checker rule: submitter cannot approve own revision")
         errors = _validate_master_revision(dict(row["revision_payload"] or {}))
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
@@ -633,7 +635,7 @@ def reject_master_revision(
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be rejected")
         if str(row["created_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: creator cannot reject own revision")
+            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator cannot reject own revision")
         connection.execute(
             "update public.vision_master_revisions set status='REJECTED',updated_at=now() where master_id=%s and id=%s",
             (master_id, revision_id),
