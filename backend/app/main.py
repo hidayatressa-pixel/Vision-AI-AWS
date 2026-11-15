@@ -519,6 +519,10 @@ def assign_user_role(
         raise HTTPException(status_code=422, detail="Unsupported Vision-AI role")
     actor_id = str(user.get("id"))
     with db.connection() as connection, connection.transaction():
+        previous = connection.execute(
+            "select role from public.vision_user_roles where user_id=%s for update",
+            (user_id,),
+        ).fetchone()
         connection.execute(
             """
             insert into public.vision_user_roles (user_id, email, role, is_active, assigned_by)
@@ -528,6 +532,13 @@ def assign_user_role(
               assigned_by=excluded.assigned_by, updated_at=now()
             """,
             (user_id, payload.email.strip().lower(), payload.role, payload.is_active, actor_id),
+        )
+        connection.execute(
+            """insert into public.vision_user_role_audit_logs
+               (target_user_id,target_email,previous_role,new_role,is_active,actor_id)
+               values (%s,%s,%s,%s,%s,%s)""",
+            (user_id, payload.email.strip().lower(), previous["role"] if previous else None,
+             payload.role, payload.is_active, actor_id),
         )
     return {"assigned": True, "user_id": user_id, "role": payload.role, "is_active": payload.is_active}
 
