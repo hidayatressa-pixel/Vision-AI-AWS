@@ -1,4 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '../../services/supabase';
 
@@ -7,7 +8,7 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
-  const [session, setSession] = useState<Awaited<ReturnType<NonNullable<typeof supabase>['auth']['getSession']>>['data']['session']>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [checking, setChecking] = useState(Boolean(supabase));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -52,6 +53,10 @@ export function AuthGate({ children }: AuthGateProps) {
       setSubmitting(false);
     }
   };
+
+  const params = new URLSearchParams(window.location.search);
+  const isPhoneCameraRoute = params.get('camera') === 'phone' && Boolean(params.get('session'));
+  if (isPhoneCameraRoute) return <>{children}</>;
 
   if (!isSupabaseConfigured || !supabase) {
     return (
