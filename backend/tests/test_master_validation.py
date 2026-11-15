@@ -1,6 +1,13 @@
 import unittest
+from unittest.mock import MagicMock
 
-from backend.app.main import _canonical_checksum, _validate_master_revision
+from fastapi import HTTPException
+
+from backend.app.main import (
+    _canonical_checksum,
+    _validate_master_revision,
+    require_station_access,
+)
 
 
 def valid_revision():
@@ -73,6 +80,29 @@ def valid_eight_point_revision():
     payload["referenceImages"][0]["roiLayouts"] = layouts
     payload["referenceImages"][1]["roiLayouts"] = layouts
     return payload
+
+
+class StationAccessTests(unittest.TestCase):
+    def test_operator_with_station_assignment_is_allowed(self):
+        connection = MagicMock()
+        connection.execute.return_value.fetchone.return_value = {"is_active": True}
+        pool = MagicMock()
+        pool.connection.return_value.__enter__.return_value = connection
+        require_station_access({"id": "user-1", "vision_role": "OPERATOR"}, "LINE-01", pool)
+
+    def test_operator_without_station_assignment_is_denied(self):
+        connection = MagicMock()
+        connection.execute.return_value.fetchone.return_value = None
+        pool = MagicMock()
+        pool.connection.return_value.__enter__.return_value = connection
+        with self.assertRaises(HTTPException) as raised:
+            require_station_access({"id": "user-1", "vision_role": "OPERATOR"}, "LINE-02", pool)
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_engineer_can_manage_stations_without_operator_mapping(self):
+        pool = MagicMock()
+        require_station_access({"id": "engineer-1", "vision_role": "ENGINEER"}, "LINE-99", pool)
+        pool.connection.assert_not_called()
 
 
 class MasterRevisionValidationTests(unittest.TestCase):
