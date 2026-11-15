@@ -119,9 +119,19 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       window.alert('Unsupported role. No changes were made.');
       return;
     }
+    let stationIds: string[] | null = null;
+    if (requestedRole === 'OPERATOR') {
+      const stationInput = window.prompt(
+        'Comma-separated station IDs for this Operator (empty revokes all station access):',
+        'VISION-AI-AWS'
+      );
+      if (stationInput === null) return;
+      stationIds = [...new Set(stationInput.split(',').map((value) => value.trim()).filter(Boolean))];
+    }
     try {
       await dbService.assignUserRole(userId, email, requestedRole as 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN');
-      window.alert('User role updated. Ask the user to refresh the application.');
+      if (stationIds !== null) await dbService.assignUserStations(userId, stationIds);
+      window.alert('User role and station access updated. Ask the user to refresh the application.');
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'User role update failed.');
     }
