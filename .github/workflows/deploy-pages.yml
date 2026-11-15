@@ -36,7 +36,9 @@ jobs:
       - name: Build frontend
         run: npm run build
         env:
-          VITE_ENGINEERING_PIN: ${{ secrets.VITE_ENGINEERING_PIN }}
+          VITE_VISION_EVENT_API_URL: ${{ vars.VISION_EVENT_API_URL }}
+          VITE_VISION_CONFIG_API_URL: ${{ vars.VISION_CONFIG_API_URL }}
+          VITE_VISION_SESSION_API_URL: ${{ vars.VISION_SESSION_API_URL }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
