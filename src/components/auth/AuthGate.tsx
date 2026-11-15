@@ -60,12 +60,13 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (!isSupabaseConfigured || !supabase) {
     return (
-      <>
-        <div className="border-b border-amber-500/30 bg-amber-950/40 px-4 py-2 text-center text-[11px] font-mono text-amber-200">
-          PUBLIC DEMO MODE — configure Supabase Auth and VITE_VISION_API_URL before production use.
-        </div>
-        {children}
-      </>
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
+        <section className="w-full max-w-lg rounded-3xl border border-amber-500/30 bg-slate-900 p-7">
+          <div className="text-xs font-mono tracking-[0.2em] text-amber-300">CONFIGURATION REQUIRED</div>
+          <h1 className="mt-3 text-xl font-black">Supabase Auth is not configured</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">Cloud access is disabled until VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are configured in the frontend build environment. No inspection workspace is exposed in this state.</p>
+        </section>
+      </main>
     );
   }
 
