@@ -8,9 +8,11 @@
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
 import { MasterProduct } from '../types/master';
-import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
+import { getSupabaseAccessToken, getVisionApiBaseUrl, supabase } from './supabase';
 
 const VISION_API_URL = getVisionApiBaseUrl();
+const VISION_STATION_ID = String(import.meta.env.VITE_VISION_STATION_ID || 'VISION-AI-AWS').trim();
+const MASTER_BUCKET = 'vision-assets';
 
 class DatabaseService {
   private getHistoryApiUrl(): string {
@@ -18,6 +20,96 @@ class DatabaseService {
       throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
     }
     return `${VISION_API_URL}/v1/inspection-history`;
+  }
+
+  private async requestEndpoint<T = unknown>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    if (!VISION_API_URL) throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
+    const token = await getSupabaseAccessToken();
+    const response = await fetch(VISION_API_URL + endpoint, {
+      ...init,
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...init.headers },
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error('Vision backend error ' + response.status + ': ' + (body || response.statusText));
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  }
+
+  private knownMasterIds = new Set<string>();
+  private migrationAttempted = false;
+
+  public getStationId(): string { return VISION_STATION_ID; }
+
+  public async getCurrentUserRole(): Promise<'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN'> {
+    const result = await this.requestEndpoint<{ role: 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN' }>('/v1/me');
+    return result.role;
+  }
+
+  private safePathSegment(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100) || 'asset';
+  }
+
+  private async uploadMasterImage(masterId: string, revisionId: string, fileName: string, imageUrl: string, existingPath?: string): Promise<string> {
+    if (existingPath) return existingPath;
+    if (!imageUrl) return '';
+    if (!supabase) throw new Error('Supabase Storage is not configured.');
+    if (!imageUrl.startsWith('data:image/')) throw new Error('Master image is missing its Storage object path. Re-upload it before saving.');
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new Error('Master assets must be JPG, PNG, or WEBP images.');
+    if (blob.size > 25 * 1024 * 1024) throw new Error('Master image exceeds the 25 MiB Storage limit.');
+    const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/png' ? 'png' : 'webp';
+    const objectPath = this.safePathSegment(masterId) + '/' + this.safePathSegment(revisionId) + '/' + fileName + '.' + extension;
+    const { error } = await supabase.storage.from(MASTER_BUCKET).upload(objectPath, blob, { contentType: blob.type, upsert: true });
+    if (error) throw new Error('Master asset upload failed: ' + error.message);
+    return objectPath;
+  }
+
+  private async signedAssetUrl(path?: string): Promise<string> {
+    if (!path) return '';
+    if (!supabase) throw new Error('Supabase Storage is not configured.');
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) throw new Error('Unable to read approved Master asset: ' + (error?.message || 'signed URL unavailable'));
+    return data.signedUrl;
+  }
+
+  private async materializeMaster(master: MasterProduct): Promise<MasterProduct> {
+    const revisions = await Promise.all(master.revisions.map(async (revision) => ({
+      ...revision,
+      masterImageUrl: await this.signedAssetUrl(revision.masterImagePath),
+      referenceImages: await Promise.all((revision.referenceImages || []).map(async (reference) => ({
+        ...reference, imageUrl: await this.signedAssetUrl(reference.storagePath),
+      }))),
+    })));
+    return { ...master, revisions };
+  }
+
+  private async getLegacyLocalMasters(): Promise<MasterProduct[]> {
+    try {
+      const stored = await this.runMasterTransaction<MasterProduct[]>('readonly', (store) => store.getAll());
+      if (stored.length) return stored;
+    } catch { /* Fall back to localStorage for older browsers. */ }
+    return this.readFallbackMasters();
+  }
+
+  public async submitMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/submit', { method: 'POST' });
+  }
+
+  public async approveMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/approve', { method: 'POST' });
+  }
+
+  public async rejectMasterRevision(masterId: string, revisionId: string, reason: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/reject', { method: 'POST', body: JSON.stringify({ reason }) });
+  }
+
+  public async assignMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/assign', {
+      method: 'POST', body: JSON.stringify({ station_id: VISION_STATION_ID }),
+    });
   }
 
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
