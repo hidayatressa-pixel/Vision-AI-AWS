@@ -601,6 +601,53 @@ def assign_user_role(
     return {"assigned": True, "user_id": user_id, "role": payload.role, "is_active": payload.is_active}
 
 
+@app.post("/v1/admin/users/{user_id}/stations")
+def assign_user_stations(
+    user_id: str, payload: UserStationAccessRequest,
+    user: dict[str, Any] = Depends(require_admin), db: ConnectionPool = Depends(get_pool),
+):
+    station_ids = sorted({value.strip() for value in payload.station_ids if value and value.strip()})
+    if any(len(value) > 120 for value in station_ids):
+        raise HTTPException(status_code=422, detail="Station IDs must not exceed 120 characters")
+    actor_id = str(user.get("id"))
+    with db.connection() as connection, connection.transaction():
+        existing = connection.execute(
+            "select station_id,is_active from public.vision_user_station_access where user_id=%s for update",
+            (user_id,),
+        ).fetchall()
+        existing_by_id = {row["station_id"]: bool(row["is_active"]) for row in existing}
+        for station_id, was_active in existing_by_id.items():
+            if station_id not in station_ids and was_active:
+                connection.execute(
+                    "update public.vision_user_station_access set is_active=false,assigned_by=%s,updated_at=now() where user_id=%s and station_id=%s",
+                    (actor_id, user_id, station_id),
+                )
+                connection.execute(
+                    """insert into public.vision_user_station_audit_logs
+                       (target_user_id,station_id,previous_active,new_active,actor_id)
+                       values (%s,%s,true,false,%s)""",
+                    (user_id, station_id, actor_id),
+                )
+        for station_id in station_ids:
+            was_active = existing_by_id.get(station_id, False)
+            connection.execute(
+                """insert into public.vision_user_station_access
+                   (user_id,station_id,is_active,assigned_by)
+                   values (%s,%s,true,%s)
+                   on conflict (user_id,station_id) do update
+                     set is_active=true,assigned_by=excluded.assigned_by,updated_at=now()""",
+                (user_id, station_id, actor_id),
+            )
+            if not was_active:
+                connection.execute(
+                    """insert into public.vision_user_station_audit_logs
+                       (target_user_id,station_id,previous_active,new_active,actor_id)
+                       values (%s,%s,%s,true,%s)""",
+                    (user_id, station_id, existing_by_id.get(station_id), actor_id),
+                )
+    return {"assigned": True, "user_id": user_id, "station_ids": station_ids}
+
+
 @app.get("/v1/masters")
 def list_masters(
     station_id: str = Query(default="VISION-AI-AWS", min_length=1, max_length=120),
