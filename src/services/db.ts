@@ -7,7 +7,6 @@
  */
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
-import { InspectionRecord, InspectionStats } from '../types/inspection';
 import { MasterProduct } from '../types/master';
 import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
 
