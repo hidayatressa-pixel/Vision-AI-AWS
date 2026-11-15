@@ -191,7 +191,20 @@ function VisionApp() {
         updatedAt: now,
       }],
     };
-    await dbService.saveMaster(newProduct); await loadMasters(); handleSelectMaster(newProduct, revisionId);
+    await dbService.saveMaster(newProduct);
+    await loadMasters();
+    setSetupMaster(newProduct);
+    setSetupRevision(newProduct.revisions[0]);
+    setSetupStep(2);
+    setActiveTab('MASTERS');
+    setIsSetupModalOpen(true);
+  };
+
+  const handleMasterDraftSaved = async () => {
+    await loadMasters();
+    setIsSetupModalOpen(false);
+    setSetupStep(5);
+    setActiveTab('MASTERS');
   };
 
   // Production inspection requires a verified physical or remote camera stream.
@@ -600,7 +613,7 @@ function VisionApp() {
         {setupStep === 5 && activeTab === 'PLC_SETUP' && <PLCConfigurationView />}
         {setupStep === 5 && activeTab === 'DIAGNOSTICS' && <DiagnosticsModal metrics={pipeline.liveMetrics} />}
       </main>
-      {setupStep === 2 && isSetupModalOpen && setupMaster && setupRevision && <MasterSetupModal master={setupMaster} revision={setupRevision} isOpen={isSetupModalOpen} onClose={() => setIsSetupModalOpen(false)} onSaved={loadMasters} />}
+      {setupStep === 2 && isSetupModalOpen && setupMaster && setupRevision && <MasterSetupModal master={setupMaster} revision={setupRevision} isOpen={isSetupModalOpen} onClose={() => setIsSetupModalOpen(false)} onSaved={handleMasterDraftSaved} />}
       {showEndSessionDialog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="presentation">
           <section role="dialog" aria-modal="true" aria-labelledby="end-session-title" className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-slate-950 p-6 shadow-2xl">
