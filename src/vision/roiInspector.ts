@@ -547,6 +547,7 @@ export class ROIInspector {
           bestNg!.score >= threshold &&
           bestNg!.score - bestOk.score >= classMargin;
         const okConfirmed = negativeReferenceValid &&
+          bestOk.colorScore >= minColorSimilarity &&
           bestOk.score >= threshold &&
           bestOk.score - bestNg!.score >= classMargin;
 
@@ -625,8 +626,8 @@ export class ROIInspector {
       }
 
       const margin = bestOk.score - bestNg.score;
-      const okConfirmed = bestOk.score >= threshold && margin >= classMargin;
-      const ngConfirmed = bestNg.score >= threshold && margin <= -classMargin;
+      const okConfirmed = bestOk.colorScore >= minColorSimilarity && bestOk.score >= threshold && margin >= classMargin;
+      const ngConfirmed = bestNg.colorScore >= minColorSimilarity && bestNg.score >= threshold && margin <= -classMargin;
       const bestSimilarity = Math.max(bestOk.score, bestNg.score);
 
       // Position is measured against the best OK object centroid in rectified ROI space.
