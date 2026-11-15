@@ -84,6 +84,12 @@ class MasterRevisionValidationTests(unittest.TestCase):
     def test_complete_master_with_positive_and_negative_reference_is_valid(self):
         self.assertEqual(_validate_master_revision(valid_revision()), [])
 
+    def test_expected_object_count_must_match_presence_rois(self):
+        payload = valid_revision()
+        payload["expectedObjectCount"] = 0
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("Expected object count" in error for error in errors))
+
     def test_missing_negative_reference_is_rejected(self):
         payload = valid_revision()
         payload["referenceImages"] = [payload["referenceImages"][0]]
