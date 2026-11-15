@@ -503,16 +503,27 @@ export class ROIInspector {
       }
 
       if (!expectedPresence && currentShape.present) {
-        results.push({
-          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
-          masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: expectedFramePosition,
-          actualDetectedPosition,
-          positionOffsetPx: null, positionOffsetMm: null,
-          isWithinTolerance: false, confidence: currentShape.presenceConfidence,
-          isPresent: true, evidence: 'PRESENT', status: 'FAIL',
-          failureReason: `${roi.name}: unexpected ${roi.objectType} detected in an ROI configured to be empty`,
-        });
+        const ngConfirmed = Boolean(bestNg?.referenceShape.present &&
+          bestNg.score >= threshold &&
+          bestNg.score - bestOk.score >= classMargin);
+        if (ngConfirmed) {
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: false, confidence: Math.round(bestNg!.score * 100) / 100,
+            isPresent: true, evidence: 'PRESENT', status: 'FAIL',
+            failureReason: `${roi.name}: detected object matches the approved NG reference for this empty area`,
+          });
+        } else {
+          results.push(uncertainResult(
+            roi, geometry,
+            `${roi.name}: foreground was detected in an empty-expected ROI, but it did not match the approved NG object reference`,
+            frame.width, frame.height, currentShape
+          ));
+        }
         continue;
       }
 
