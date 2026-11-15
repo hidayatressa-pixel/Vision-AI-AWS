@@ -72,7 +72,12 @@ export function validateEightPointReferenceImages(references: ReferenceImage[]):
     references.every((reference) => Boolean(reference.imageUrl?.trim()));
 }
 
-export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
+export function isEightPointPresenceCandidate(
+  rois: InspectionROI[],
+  profile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
+): boolean {
+  if (profile === 'STANDARD') return false;
+  if (profile === 'EIGHT_POINT_PRESENCE') return true;
   return rois.length === EIGHT_POINT_COUNT &&
     rois.every((roi) =>
       roi.objectType === 'screw' &&
@@ -81,9 +86,20 @@ export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
 }
 
 /** Validate eight unique, required, non-overlapping screw slots in Master coordinates. */
-export function validateEightPointPresenceLayout(rois: InspectionROI[]): string[] {
-  if (!isEightPointPresenceCandidate(rois)) return [];
+export function validateEightPointPresenceLayout(
+  rois: InspectionROI[],
+  profile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
+): string[] {
+  if (!isEightPointPresenceCandidate(rois, profile)) return [];
   const errors: string[] = [];
+  if (rois.length !== EIGHT_POINT_COUNT) {
+    errors.push('Eight-point presence profile requires exactly eight screw ROIs.');
+    return errors;
+  }
+  if (rois.some((roi) => roi.objectType !== 'screw' || roi.expectedObjectPresence === false)) {
+    errors.push('Every ROI in the eight-point presence profile must be a required screw position.');
+    return errors;
+  }
   const { rowCounts } = orderEightPointSlots(rois);
   if (rowCounts.length !== 3 || rowCounts[0] !== 4 || rowCounts[1] !== 2 || rowCounts[2] !== 2) {
     errors.push('Eight screw slots must be arranged in three rows with a 4-2-2 distribution from top to bottom.');
