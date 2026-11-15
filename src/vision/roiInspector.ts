@@ -324,9 +324,9 @@ function uncertainResult(
   frameHeight: number,
   shape?: RoiShapeDescriptor
 ): ROIInspectionResult {
-  const evidence = !shape || shape.presenceConfidence < 0.5
-    ? 'UNCERTAIN'
-    : shape.present ? 'PRESENT' : 'ABSENT';
+  // A diagnostic fallback is not proof of presence or absence. Only the main
+  // recognition path may emit PRESENT/ABSENT after matching approved references.
+  const evidence = 'UNCERTAIN';
   let actualDetectedPosition: { x: number; y: number } | null = null;
   if (geometry && shape?.present) {
     const localX = (shape.centroidX - 0.5) * geometry.width;
@@ -424,7 +424,7 @@ export class ROIInspector {
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
-      if (allOkMatches.length === 0 || (!eightPointPresenceMode && ngMatches.length === 0)) {
+      if (allOkMatches.length === 0 || ngMatches.length === 0) {
         results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
         continue;
       }
@@ -469,18 +469,17 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const missingConfirmed = eightPointPresenceMode
-          ? confirmsEightPointAbsence(
+        const missingConfirmed = Boolean(bestAbsentNg &&
+          confirmsMissingObject(currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin) &&
+          (!eightPointPresenceMode || confirmsEightPointAbsence(
             currentShape.present,
             currentShape.presenceConfidence,
             bestOk.referenceShape.present,
             bestOk.shapeScore,
             Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)),
             0.35
-          )
-          : Boolean(bestAbsentNg && confirmsMissingObject(
-            currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
-          ));
+          ))
+        );
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
@@ -518,16 +517,46 @@ export class ROIInspector {
       }
 
       if (!expectedPresence && !currentShape.present) {
-        matchedRoiCount++;
-        results.push({
-          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
-          masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: expectedFramePosition,
-          actualDetectedPosition: null,
-          positionOffsetPx: null, positionOffsetMm: null,
-          isWithinTolerance: true, confidence: currentShape.presenceConfidence,
-          isPresent: false, evidence: 'ABSENT', status: 'PASS',
-        });
+        // An empty-looking crop is not enough to pass. The surrounding target
+        // area/background must match the approved empty-state Master, and the
+        // labelled NG reference must prove what an unwanted object looks like.
+        const negativeReferenceValid = Boolean(bestNg?.referenceShape.present);
+        const ngConfirmed = negativeReferenceValid &&
+          bestNg!.score >= threshold &&
+          bestNg!.score - bestOk.score >= classMargin;
+        const okConfirmed = negativeReferenceValid &&
+          bestOk.score >= threshold &&
+          bestOk.score - bestNg!.score >= classMargin;
+
+        if (ngConfirmed) {
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition: null,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: false, confidence: Math.round(bestNg!.score * 100) / 100,
+            isPresent: false, evidence: 'ABSENT', status: 'FAIL',
+            failureReason: `${roi.name}: empty-area state matches the approved NG reference containing an unwanted object`,
+          });
+        } else if (okConfirmed) {
+          matchedRoiCount++;
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition: null,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: true, confidence: Math.round(bestOk.score * 100) / 100,
+            isPresent: false, evidence: 'ABSENT', status: 'PASS',
+          });
+        } else {
+          results.push(uncertainResult(
+            roi, geometry,
+            `${roi.name}: no foreground was detected, but the empty-area background did not match the approved OK Master with sufficient separation from the NG reference`,
+            frame.width, frame.height, currentShape
+          ));
+        }
         continue;
       }
 
@@ -535,7 +564,8 @@ export class ROIInspector {
       // not full OK/NG quality classification. A present patch must still match
       // the positive screw Master strongly enough to reject unrelated texture.
       if (eightPointPresenceMode) {
-        if (bestOk.score < threshold) {
+        const positiveMargin = bestOk.score - (bestNg?.score ?? 0);
+        if (bestOk.score < threshold || positiveMargin < classMargin) {
           results.push(uncertainResult(
             roi, geometry, `${roi.name}: screw-like foreground was detected but did not match the positive screw Master`,
             frame.width, frame.height, currentShape
