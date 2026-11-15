@@ -609,6 +609,18 @@ def assign_user_role(
     return {"assigned": True, "user_id": user_id, "role": payload.role, "is_active": payload.is_active}
 
 
+@app.get("/v1/admin/users/{user_id}/stations")
+def get_user_stations(
+    user_id: str, user: dict[str, Any] = Depends(require_admin), db: ConnectionPool = Depends(get_pool),
+):
+    with db.connection() as connection:
+        rows = connection.execute(
+            "select station_id from public.vision_user_station_access where user_id=%s and is_active=true order by station_id",
+            (user_id,),
+        ).fetchall()
+    return {"user_id": user_id, "station_ids": [row["station_id"] for row in rows]}
+
+
 @app.post("/v1/admin/users/{user_id}/stations")
 def assign_user_stations(
     user_id: str, payload: UserStationAccessRequest,
