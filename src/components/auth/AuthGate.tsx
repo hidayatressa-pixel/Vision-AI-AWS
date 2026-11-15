@@ -104,7 +104,7 @@ export function AuthGate({ children }: AuthGateProps) {
     <>
       <div className="flex items-center justify-end gap-3 border-b border-slate-800 bg-slate-950 px-4 py-2 text-[10px] font-mono text-slate-400">
         <span className="truncate">{session.user.email}</span>
-        <button type="button" onClick={() => void supabase.auth.signOut()} className="flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 hover:border-rose-400/50 hover:text-rose-200"><LogOut size={12} /> SIGN OUT</button>
+        <button type="button" onClick={() => { if (supabase) void supabase.auth.signOut(); }} className="flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 hover:border-rose-400/50 hover:text-rose-200"><LogOut size={12} /> SIGN OUT</button>
       </div>
       {children}
     </>
