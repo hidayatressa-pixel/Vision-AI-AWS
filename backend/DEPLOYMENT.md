@@ -32,7 +32,9 @@ Use the connection details for `vision_backend` in Render's `DATABASE_URL`. If u
 
 ## Supabase Auth users
 
-Create operator/admin accounts manually under Supabase Dashboard → Authentication → Users. This app intentionally has no public sign-up flow. Add each exact email to `VISION_ALLOWED_USER_EMAILS`; add administrators to `VISION_ADMIN_EMAILS`.
+Initial administrator/operator email: `hidayatressa@gmail.com`.
+
+Create this account in Supabase Dashboard → Authentication → Users → Add user → Send invite. The user completes the email invitation and sets their own password. This app intentionally has no public sign-up flow. The backend allowlists this email in both `VISION_ALLOWED_USER_EMAILS` and `VISION_ADMIN_EMAILS`; add additional exact emails only after provisioning them in Supabase Auth.
 
 ## Frontend build variables
 
