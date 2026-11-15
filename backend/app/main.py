@@ -533,31 +533,32 @@ def _validate_master_revision(payload: dict[str, Any], master_id: str | None = N
     if use_eight_point_profile:
         if len(rois) != 8 or len(screw_rois) != 8:
             errors.append("Eight-point presence profile requires exactly eight required screw ROIs")
-        if len(anchors) < 3:
-            errors.append("Eight-point presence profile requires at least three non-collinear alignment anchors")
-        heights = sorted(float(roi.get("height") or float(roi["radius"]) * 2) for roi in screw_rois)
-        row_tolerance = max(0.02, heights[len(heights) // 2] * 0.75)
-        rows: list[dict[str, Any]] = []
-        for roi in sorted(screw_rois, key=lambda item: (float(item["y"]), float(item["x"]))):
-            center_y = float(roi["y"])
-            row = next((candidate for candidate in rows if abs(candidate["center_y"] - center_y) <= row_tolerance), None)
-            if row is None:
-                row = {"center_y": center_y, "items": []}
-                rows.append(row)
-            row["items"].append(roi)
-            row["center_y"] = sum(float(item["y"]) for item in row["items"]) / len(row["items"])
-        rows.sort(key=lambda item: item["center_y"])
-        if [len(row["items"]) for row in rows] != [4, 2, 2]:
-            errors.append("Eight-point screw Master must preserve the 4-2-2 row layout")
-        for index, first in enumerate(screw_rois):
-            for second in screw_rois[index + 1:]:
-                fw = float(first.get("width") or float(first["radius"]) * 2)
-                fh = float(first.get("height") or float(first["radius"]) * 2)
-                sw = float(second.get("width") or float(second["radius"]) * 2)
-                sh = float(second.get("height") or float(second["radius"]) * 2)
-                if abs(float(first["x"]) - float(second["x"])) * 2 < fw + sw and abs(float(first["y"]) - float(second["y"])) * 2 < fh + sh:
-                    errors.append("Eight-point screw ROIs must not overlap")
-                    break
+        else:
+            if len(anchors) < 3:
+                errors.append("Eight-point presence profile requires at least three non-collinear alignment anchors")
+            heights = sorted(float(roi.get("height") or float(roi["radius"]) * 2) for roi in screw_rois)
+            row_tolerance = max(0.02, heights[len(heights) // 2] * 0.75)
+            rows: list[dict[str, Any]] = []
+            for roi in sorted(screw_rois, key=lambda item: (float(item["y"]), float(item["x"]))):
+                center_y = float(roi["y"])
+                row = next((candidate for candidate in rows if abs(candidate["center_y"] - center_y) <= row_tolerance), None)
+                if row is None:
+                    row = {"center_y": center_y, "items": []}
+                    rows.append(row)
+                row["items"].append(roi)
+                row["center_y"] = sum(float(item["y"]) for item in row["items"]) / len(row["items"])
+            rows.sort(key=lambda item: item["center_y"])
+            if [len(row["items"]) for row in rows] != [4, 2, 2]:
+                errors.append("Eight-point screw Master must preserve the 4-2-2 row layout")
+            for index, first in enumerate(screw_rois):
+                for second in screw_rois[index + 1:]:
+                    fw = float(first.get("width") or float(first["radius"]) * 2)
+                    fh = float(first.get("height") or float(first["radius"]) * 2)
+                    sw = float(second.get("width") or float(second["radius"]) * 2)
+                    sh = float(second.get("height") or float(second["radius"]) * 2)
+                    if abs(float(first["x"]) - float(second["x"])) * 2 < fw + sw and abs(float(first["y"]) - float(second["y"])) * 2 < fh + sh:
+                        errors.append("Eight-point screw ROIs must not overlap")
+                        break
 
     for roi_id in roi_ids:
         for kind in ("OK", "NG"):
