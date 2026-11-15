@@ -51,6 +51,30 @@ def valid_revision():
     }
 
 
+def valid_eight_point_revision():
+    payload = valid_revision()
+    positions = [
+        (0.20, 0.30), (0.40, 0.30), (0.60, 0.30), (0.80, 0.30),
+        (0.40, 0.55), (0.60, 0.55),
+        (0.40, 0.80), (0.60, 0.80),
+    ]
+    payload["expectedObjectCount"] = 8
+    payload["inspectionROIs"] = []
+    layouts = {}
+    for index, (x, y) in enumerate(positions, start=1):
+        roi_id = f"P{index}"
+        payload["inspectionROIs"].append({
+            "id": roi_id, "name": roi_id, "objectType": "screw",
+            "x": x, "y": y, "radius": 0.025, "width": 0.05, "height": 0.05,
+            "expectedObjectPresence": True, "minConfidence": 0.75,
+            "minColorSimilarity": 0.55, "colorWeight": 0.15,
+        })
+        layouts[roi_id] = {"x": x - 0.05, "y": y - 0.05, "width": 0.1, "height": 0.1}
+    payload["referenceImages"][0]["roiLayouts"] = layouts
+    payload["referenceImages"][1]["roiLayouts"] = layouts
+    return payload
+
+
 class MasterRevisionValidationTests(unittest.TestCase):
     def test_checksum_ignores_embedded_previous_checksum(self):
         payload = {"revisionCode": "REV-01", "inspectionROIs": [], "checksum": "old-value"}
@@ -93,6 +117,22 @@ class MasterRevisionValidationTests(unittest.TestCase):
         ]
         errors = _validate_master_revision(payload)
         self.assertTrue(any("non-collinear" in error for error in errors))
+
+    def test_valid_eight_point_422_layout_is_accepted(self):
+        self.assertEqual(_validate_master_revision(valid_eight_point_revision()), [])
+
+    def test_invalid_eight_point_row_distribution_is_rejected(self):
+        payload = valid_eight_point_revision()
+        payload["inspectionROIs"][6]["y"] = 0.68
+        payload["inspectionROIs"][7]["y"] = 0.80
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("4-2-2 row layout" in error for error in errors))
+
+    def test_overlapping_eight_point_rois_are_rejected(self):
+        payload = valid_eight_point_revision()
+        payload["inspectionROIs"][1]["x"] = payload["inspectionROIs"][0]["x"]
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("must not overlap" in error for error in errors))
 
 
 if __name__ == "__main__":
