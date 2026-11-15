@@ -718,8 +718,8 @@ def approve_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be approved")
-        if str(row["submitted_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: submitter cannot approve own revision")
+        if str(row["created_by"]) == actor or str(row["submitted_by"]) == actor:
+            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator and submitter cannot approve their own revision")
         errors = _validate_master_revision(dict(row["revision_payload"] or {}))
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
@@ -752,8 +752,8 @@ def reject_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be rejected")
-        if str(row["submitted_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: submitter cannot reject own revision")
+        if str(row["created_by"]) == actor or str(row["submitted_by"]) == actor:
+            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator and submitter cannot reject their own revision")
         connection.execute(
             "update public.vision_master_revisions set status='REJECTED',updated_at=now() where master_id=%s and id=%s",
             (master_id, revision_id),
