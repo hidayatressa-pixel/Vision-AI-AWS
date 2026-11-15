@@ -104,6 +104,7 @@ export type RoiBoundaryPolicy = 'STRICT' | 'WARNING' | 'DISABLED';
 
 export interface MasterRevision {
   id: string;
+  inspectionProfile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE';
   masterId: string;
   revisionCode: string;
   revisionNote: string;
