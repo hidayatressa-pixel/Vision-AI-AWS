@@ -627,15 +627,15 @@ def reject_master_revision(
         raise HTTPException(status_code=422, detail="A rejection reason is required")
     with db.connection() as connection, connection.transaction():
         row = connection.execute(
-            "select status,created_by from public.vision_master_revisions where master_id=%s and id=%s for update",
+            "select status,created_by,submitted_by from public.vision_master_revisions where master_id=%s and id=%s for update",
             (master_id, revision_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be rejected")
-        if str(row["created_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator cannot reject own revision")
+        if str(row["submitted_by"]) == actor:
+            raise HTTPException(status_code=403, detail="Maker-checker rule: submitter cannot reject own revision")
         connection.execute(
             "update public.vision_master_revisions set status='REJECTED',updated_at=now() where master_id=%s and id=%s",
             (master_id, revision_id),
