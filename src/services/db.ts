@@ -356,6 +356,7 @@ class DatabaseService {
       extra_objects: record.extraObjects,
       thumbnail_base64: record.thumbnailBase64 || null,
       device_id: record.deviceId,
+      station_id: VISION_STATION_ID,
       operator_id: record.operatorId || null,
       sequence_number: record.sequenceNumber ?? null,
       plc_interlock_state: record.plcInterlockState || null,
