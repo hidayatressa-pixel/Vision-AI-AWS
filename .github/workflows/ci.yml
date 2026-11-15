@@ -34,6 +34,11 @@ jobs:
         run: npm run audit:eight-point
       - name: Build frontend
         run: npm run build
+      - name: Build isolated frontend prototype
+        run: |
+          cd frontend
+          npm install
+          npm run build
 
   aws-opencv5:
     runs-on: ubuntu-latest
