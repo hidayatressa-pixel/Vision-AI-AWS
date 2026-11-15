@@ -654,6 +654,7 @@ def list_masters(
     user: dict[str, Any] = Depends(require_user), db: ConnectionPool = Depends(get_pool),
 ):
     role = resolve_user_role(user, db)
+    require_station_access(user, station_id, db)
     with db.connection() as connection:
         rows = connection.execute(
             """
@@ -931,6 +932,7 @@ def assign_master_revision(
 def get_station_master(
     station_id: str, user: dict[str, Any] = Depends(require_active_user), db: ConnectionPool = Depends(get_pool),
 ):
+    require_station_access(user, station_id, db)
     with db.connection() as connection:
         row = connection.execute(
             """select m.id as master_id,m.product_code,m.product_name,m.description,
@@ -957,6 +959,7 @@ def create_event(
         raise HTTPException(status_code=422, detail="Unsupported event status")
 
     station_id = payload.stationId or payload.jig
+    require_station_access(user, station_id, db)
     with db.connection() as connection:
         if payload.status != "STANDBY":
             if not payload.masterId or not payload.masterRevisionId or not payload.masterRevisionChecksum:
@@ -1003,7 +1006,8 @@ def create_session(
         raise HTTPException(status_code=422, detail="Unsupported session action")
 
     context = payload.context
-    station_id = str(context.get("stationId") or "VISION-AI-AWS")
+    station_id = str(context.get("stationId") or DEFAULT_STATION_ID)
+    require_station_access(user, station_id, db)
     master_id = context.get("masterId")
     revision_id = context.get("masterRevisionId")
     revision_checksum = context.get("masterRevisionChecksum")
@@ -1068,7 +1072,8 @@ def save_configuration(
     camera = configuration.get("camera") or {}
     master = configuration.get("master") or {}
     revision = configuration.get("revision") or {}
-    station_id = str(configuration.get("stationId") or "VISION-AI-AWS")
+    station_id = str(configuration.get("stationId") or DEFAULT_STATION_ID)
+    require_station_access(user, station_id, db)
     master_id = master.get("id")
     revision_id = revision.get("id")
     if not master_id or not revision_id:
@@ -1113,6 +1118,7 @@ def get_configuration(
     user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
+    require_station_access(user, station_id, db)
     with db.connection() as connection:
         row = connection.execute(
             "select * from public.vision_configurations where station_id = %s",
@@ -1130,6 +1136,8 @@ def save_inspection_history(
     db: ConnectionPool = Depends(get_pool),
 ):
     data = payload.model_dump()
+    station_id = data.get("station_id") or DEFAULT_STATION_ID
+    require_station_access(user, station_id, db)
     with db.connection() as connection:
         assignment = connection.execute(
             """
@@ -1175,11 +1183,18 @@ def get_inspection_history(
     user: dict[str, Any] = Depends(require_active_user),
     db: ConnectionPool = Depends(get_pool),
 ):
+    station_ids = get_user_station_ids(user, db)
     with db.connection() as connection:
-        rows = connection.execute(
-            'select * from public.inspection_history order by "timestamp" desc limit %s',
-            (limit,),
-        ).fetchall()
+        if station_ids is None:
+            rows = connection.execute(
+                'select * from public.inspection_history order by "timestamp" desc limit %s',
+                (limit,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                'select * from public.inspection_history where station_id = any(%s) order by "timestamp" desc limit %s',
+                (station_ids, limit),
+            ).fetchall()
     return rows
 
 
