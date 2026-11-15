@@ -278,10 +278,36 @@ class DatabaseService {
     throw new Error('Master deletion is disabled to preserve revision and inspection history.');
   }
 
+  private revisionComparableValue(revision: MasterRevision): string {
+    const isLocalImage = (url?: string) => Boolean(url && (url.startsWith('data:image/') || url.startsWith('blob:')));
+    const {
+      status: _status,
+      checksum: _checksum,
+      submittedAt: _submittedAt,
+      submittedBy: _submittedBy,
+      approvedAt: _approvedAt,
+      approvedBy: _approvedBy,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      createdBy: _createdBy,
+      ...content
+    } = revision;
+    return JSON.stringify({
+      ...content,
+      masterImageUrl: isLocalImage(revision.masterImageUrl) ? revision.masterImageUrl : '',
+      referenceImages: (revision.referenceImages || []).map((reference) => ({
+        ...reference,
+        imageUrl: isLocalImage(reference.imageUrl) ? reference.imageUrl : '',
+      })),
+    });
+  }
+
   public async saveMaster(master: MasterProduct): Promise<void> {
     const previous = this.masterCache.get(master.id);
     const changed = master.revisions.filter((revision) =>
-      !previous || !previous.revisions.some((old) => old.id === revision.id && JSON.stringify(old) === JSON.stringify(revision))
+      !previous || !previous.revisions.some((old) =>
+        old.id === revision.id && this.revisionComparableValue(old) === this.revisionComparableValue(revision)
+      )
     );
     if (changed.length === 0 && this.knownMasterIds.has(master.id)) {
       await this.requestEndpoint('/v1/masters/' + encodeURIComponent(master.id), {
