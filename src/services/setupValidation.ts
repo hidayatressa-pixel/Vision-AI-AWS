@@ -1,4 +1,5 @@
 import { MasterRevision, ReferenceImage, ReferenceRoiLayout } from '../types/master';
+import { isEightPointPresenceCandidate, validateEightPointPresenceLayout, validateEightPointReferenceImages } from '../vision/eightPointPresenceEngine';
 
 export interface SetupValidationCheck {
   label: string;
@@ -21,22 +22,41 @@ function defaultLayout(roi: MasterRevision['inspectionROIs'][number]): Reference
 export function getMasterValidationChecks(revision: MasterRevision): SetupValidationCheck[] {
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
+  const expectedObjectCount = rois.filter((roi) => roi.expectedObjectPresence !== false).length;
+  const eightPointMode = isEightPointPresenceCandidate(rois);
+  const eightPointErrors = validateEightPointPresenceLayout(rois);
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
+  const anchorGeometryValid = anchors.length === 0 || anchors.some((a, i) =>
+    anchors.some((b, j) => j > i && anchors.some((d, k) => k > j &&
+      Math.abs((b.x - a.x) * (d.y - a.y) - (d.x - a.x) * (b.y - a.y)) > 0.0005))
+  );
   const anchorsValid = anchors.length === 0 || (
     anchors.length >= 3 &&
     anchorIdsUnique &&
+    anchorGeometryValid &&
     anchors.every((anchor) =>
       Number.isFinite(anchor.x) && anchor.x >= 0 && anchor.x <= 1 &&
       Number.isFinite(anchor.y) && anchor.y >= 0 && anchor.y <= 1 &&
-      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 &&
-      Number.isFinite(anchor.patchRadius) && anchor.patchRadius > 0
+      Number.isFinite(anchor.searchRadius) && anchor.searchRadius > 0 && anchor.searchRadius <= 0.5 &&
+      Number.isFinite(anchor.patchRadius) && anchor.patchRadius >= 4 && anchor.patchRadius <= 20
     )
   );
+  const eightPointAlignmentValid = !eightPointMode || anchors.length >= 3;
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
   const ngReferences = references.filter((reference) => reference.kind === 'NG');
   const isNormalized = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
+  const tolerance = revision.tolerance;
+  const tolerancesValid = Boolean(tolerance) &&
+    Number.isFinite(tolerance.maxPositionOffsetPx) && tolerance.maxPositionOffsetPx >= 0 &&
+    Number.isFinite(tolerance.maxPositionOffsetMm) && tolerance.maxPositionOffsetMm >= 0 &&
+    Number.isFinite(tolerance.maxRotationToleranceDeg) && tolerance.maxRotationToleranceDeg >= 0 && tolerance.maxRotationToleranceDeg <= 45 &&
+    Number.isFinite(tolerance.minAlignmentConfidence) && tolerance.minAlignmentConfidence >= 0 && tolerance.minAlignmentConfidence <= 1 &&
+    Number.isFinite(tolerance.minScrewConfidence) && tolerance.minScrewConfidence >= 0 && tolerance.minScrewConfidence <= 1 &&
+    (tolerance.minScale === undefined || (Number.isFinite(tolerance.minScale) && tolerance.minScale > 0)) &&
+    (tolerance.maxScale === undefined || (Number.isFinite(tolerance.maxScale) && tolerance.maxScale >= (tolerance.minScale ?? 0.8))) &&
+    (tolerance.maxAlignmentResidualPx === undefined || (Number.isFinite(tolerance.maxAlignmentResidualPx) && tolerance.maxAlignmentResidualPx > 0));
   const zone = revision.detectionZone;
   // Backward compatibility: legacy profiles allow out-of-zone ROIs with a warning.
   const roiBoundaryPolicy = revision.roiBoundaryPolicy || 'WARNING';
@@ -54,7 +74,14 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(height) && height > 0 && height <= 1 &&
       roi.x - width / 2 >= 0 && roi.y - height / 2 >= 0 &&
       roi.x + width / 2 <= 1 && roi.y + height / 2 <= 1 &&
-      Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98;
+      Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98 &&
+      Number.isFinite(roi.toleranceRadius) && roi.toleranceRadius >= 0.005 && roi.toleranceRadius <= 0.5 &&
+      (roi.expectedObjectPresence === undefined || typeof roi.expectedObjectPresence === 'boolean') &&
+      (roi.minClassMargin === undefined || (Number.isFinite(roi.minClassMargin) && roi.minClassMargin >= 0.02 && roi.minClassMargin <= 0.3)) &&
+      (roi.sizeToleranceRatio === undefined || (Number.isFinite(roi.sizeToleranceRatio) && roi.sizeToleranceRatio >= 0.05 && roi.sizeToleranceRatio <= 1)) &&
+      (roi.shapeToleranceRatio === undefined || (Number.isFinite(roi.shapeToleranceRatio) && roi.shapeToleranceRatio >= 0.05 && roi.shapeToleranceRatio <= 0.4)) &&
+      ['screw', 'connector', 'clip', 'label', 'component'].includes(roi.objectType) &&
+      (roi.expectedPolarity === undefined || ['bright_on_dark', 'dark_on_bright', 'contrast'].includes(roi.expectedPolarity));
   });
   const roiIdsAreUnique = new Set(rois.map((roi) => roi.id)).size === rois.length &&
     rois.every((roi) => Boolean(roi.id?.trim()));
@@ -77,21 +104,36 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(layout.height) && layout.height > 0 && layout.height <= 1 &&
       layout.x + layout.width <= 1 && layout.y + layout.height <= 1;
   }));
-  const allReferencesUploaded = okReferences.length >= 1 && ngReferences.length >= 1 &&
-    references.every((reference) => Boolean(reference.imageUrl?.trim()));
+  const referenceClassesValid = references.every((reference) => reference.kind === undefined || reference.kind === 'OK' || reference.kind === 'NG');
+  const allReferencesUploaded = (eightPointMode
+    ? validateEightPointReferenceImages(references)
+    : okReferences.length >= 1 && ngReferences.length >= 1 && references.every((reference) => Boolean(reference.imageUrl?.trim()))) &&
+    referenceClassesValid;
   const layoutCoverage = references.length > 0 &&
     references.every((reference) => rois.every((roi) => Boolean(reference.roiLayouts?.[roi.id])));
 
   return [
     {
+      label: 'Eight-point screw presence layout',
+      valid: !eightPointMode || eightPointErrors.length === 0,
+      detail: !eightPointMode
+        ? 'Not active · standard ROI inspection profile'
+        : eightPointErrors.length === 0
+          ? 'Eight required screw slots · unique and non-overlapping'
+          : eightPointErrors.join(' '),
+      error: eightPointErrors.join(' '),
+    },
+    {
       label: 'Alignment',
-      valid: anchorsValid,
+      valid: anchorsValid && eightPointAlignmentValid,
       detail: anchors.length === 0
-        ? 'Fixed-camera mode · no fiducial anchors configured'
+        ? (eightPointMode ? 'Invalid for eight-point profile · moving workpiece requires at least 3 fiducial anchors' : 'Fixed-camera mode · no fiducial anchors configured')
         : anchorsValid
           ? `Fiducial alignment enabled · ${anchors.length} anchors configured`
-          : `Invalid anchor setup · ${anchors.length} configured (alignment requires zero or at least three valid anchors)`,
-      error: 'Use fixed-camera mode with zero anchors, or configure at least three unique, valid fiducial anchors.',
+          : `Invalid anchor setup · ${anchors.length} configured (requires zero or at least three unique, non-collinear anchors)`,
+      error: eightPointMode
+        ? 'Eight-point presence inspection requires at least three unique, non-collinear fiducial anchors to align a moving workpiece.'
+        : 'Use fixed-camera mode with zero anchors, or configure at least three unique, non-collinear fiducial anchors with valid search and patch radii.',
     },
     {
       label: 'Rectangular ROIs',
@@ -119,21 +161,31 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Master resolution',
-      valid: revision.masterWidth > 0 && revision.masterHeight > 0,
-      detail: revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
+      valid: Number.isFinite(revision.masterWidth) && Number.isFinite(revision.masterHeight) && revision.masterWidth > 0 && revision.masterHeight > 0,
+      detail: Number.isFinite(revision.masterWidth) && Number.isFinite(revision.masterHeight) && revision.masterWidth > 0 && revision.masterHeight > 0 ? `${revision.masterWidth}×${revision.masterHeight}` : 'Invalid',
       error: 'Master image dimensions are invalid.',
     },
     {
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
-      detail: `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
-      error: 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
+      detail: eightPointMode
+        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} positive OK reference(s) · NG references optional for presence-only mode`
+        : `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
+      error: eightPointMode
+        ? 'Add at least one uploaded OK reference showing the screw present, with a valid ROI crop.'
+        : 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
       label: 'Per-reference ROI layout',
       valid: referenceLayoutsValid && layoutCoverage,
       detail: layoutCoverage ? `ROI layouts saved for ${references.length} references` : 'Some reference layouts need initialization',
       error: 'Configure a valid rectangle layout for every ROI on each reference image.',
+    },
+    {
+      label: 'Alignment and inspection tolerances',
+      valid: tolerancesValid,
+      detail: tolerancesValid ? 'Position, rotation, scale, confidence and residual limits are valid' : 'One or more tolerance values are invalid',
+      error: 'Check global pixel/mm offsets, alignment confidence, rotation, scale and residual limits.',
     },
     {
       label: 'Detection zone',
@@ -149,9 +201,15 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
     },
     {
       label: 'Expected ROI count',
-      valid: revision.expectedObjectCount === rois.length,
-      detail: `${revision.expectedObjectCount} expected / ${rois.length} configured`,
+      valid: revision.expectedObjectCount === expectedObjectCount,
+      detail: `${revision.expectedObjectCount} expected / ${expectedObjectCount} presence-required ROI(s)`,
       error: 'Expected ROI count must match the number of rectangular ROIs.',
+    },
+    {
+      label: 'Object feature settings',
+      valid: roisHaveValidGeometry,
+      detail: 'Presence, polarity, class margin, size and position values validated',
+      error: 'Check object type, expected presence, polarity and ROI feature tolerance values.',
     },
     {
       label: 'ROI similarity threshold',

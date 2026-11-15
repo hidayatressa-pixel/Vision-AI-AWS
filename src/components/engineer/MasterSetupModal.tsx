@@ -18,6 +18,7 @@ import {
 import { InspectionROI, MasterProduct, MasterRevision, ReferenceImage, ReferenceRoiLayout, RoiBoundaryPolicy } from '../../types/master';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
+import { isEightPointPresenceCandidate } from '../../vision/eightPointPresenceEngine';
 
 interface MasterSetupModalProps {
   master: MasterProduct;
@@ -43,6 +44,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -79,7 +81,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
       return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    (['OK', 'NG'] as const).forEach((kind) => {
+    const requiredKinds: Array<'OK' | 'NG'> = isEightPointPresenceCandidate(revision.inspectionROIs) ? ['OK'] : ['OK', 'NG'];
+    requiredKinds.forEach((kind) => {
       if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
         id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
         label: `${kind} Reference 1`, imageUrl: '', kind,
@@ -511,10 +514,10 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
       // Preserve engineer-configured alignment anchors; saving a master must never erase calibration data.
       anchors: editedRevision.anchors || [],
-      expectedObjectCount: editedRevision.inspectionROIs.length,
+      expectedObjectCount: editedRevision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length,
       inspectionROIs: editedRevision.inspectionROIs.map((roi) => ({
         ...roi,
-        objectType: 'component',
+        objectType: roi.objectType,
         width: roi.width ?? roi.radius * 2,
         height: roi.height ?? roi.radius * 2,
       })),
@@ -554,7 +557,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                 Simple ROI Setup · {master.productName} ({editedRevision.revisionCode})
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Configure this product's inspection areas and any number of OK/NG reference examples.
+                {isEightPointPresenceMode
+                  ? 'Eight-point screw presence · one positive OK Master reference; NG references optional.'
+                  : 'Configure this product\'s inspection areas and any number of OK/NG reference examples.'}
               </p>
             </div>
           </div>
@@ -685,7 +690,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
                           <div className="px-2 text-center text-[9px] font-mono font-bold text-amber-400">
-                            UPLOAD REQUIRED
+                            {isEightPointPresenceMode && reference.kind === 'NG' ? 'OPTIONAL NG' : 'UPLOAD REQUIRED'}
                           </div>
                         )}
                       </div>
@@ -730,7 +735,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               <div className="text-[10px] font-mono text-cyan-300">Drag a rectangle to move it; drag its bottom-right handle to resize.</div>
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
-              <span>Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.</span>
+              <span>{isEightPointPresenceMode
+                ? 'Each of the eight slots is checked for physical screw presence against the positive OK Master. NG reference images are optional.'
+                : 'Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.'}</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
           </div>
@@ -826,17 +833,68 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!window.confirm('Replace the current ROI setup with eight starter screw slots in a 4-2-2 layout? You can move and resize every slot afterward.')) return;
+                      const positions = [
+                        { x: 0.18, y: 0.25 }, { x: 0.39, y: 0.25 },
+                        { x: 0.61, y: 0.25 }, { x: 0.82, y: 0.25 },
+                        { x: 0.39, y: 0.52 }, { x: 0.61, y: 0.52 },
+                        { x: 0.39, y: 0.78 }, { x: 0.61, y: 0.78 },
+                      ];
+                      const baseId = editedRevision.id + '-eight-point-' + Date.now();
+                      const slots: InspectionROI[] = positions.map((position, index) => ({
+                        id: baseId + '-p' + (index + 1),
+                        name: 'P' + (index + 1),
+                        objectType: 'screw',
+                        x: position.x,
+                        y: position.y,
+                        radius: 0.05,
+                        width: 0.10,
+                        height: 0.10,
+                        toleranceRadius: 0.05,
+                        minConfidence: 0.75,
+                        isRequired: true,
+                        expectedPolarity: 'contrast',
+                        comparisonMode: 'STRUCTURE_FIRST',
+                        expectedObjectPresence: true,
+                        minClassMargin: 0.06,
+                        sizeToleranceRatio: 0.35,
+                        shapeToleranceRatio: 0.10,
+                      }));
+                      setEditedRevision((prev) => ({
+                        ...prev,
+                        expectedObjectCount: 8,
+                        inspectionROIs: slots,
+                        referenceImages: prev.referenceImages.map((reference) => ({
+                          ...reference,
+                          roiLayouts: Object.fromEntries(slots.map((roi) => [roi.id, {
+                            x: roi.x - (roi.width ?? 0.10) / 2,
+                            y: roi.y - (roi.height ?? 0.10) / 2,
+                            width: roi.width ?? 0.10,
+                            height: roi.height ?? 0.10,
+                          }])),
+                        })),
+                      }));
+                      setSelectedId(slots[0].id);
+                      setSelectedItemType('ROI');
+                    }}
+                    className="flex items-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-2 text-[10px] font-bold text-cyan-300"
+                  >Create 4-2-2 Screw Layout</button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       const id = 'roi-' + Date.now();
                       const newRoi: InspectionROI = {
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
                         minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
+                        expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35, shapeToleranceRatio: 0.10,
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
                       setEditedRevision((prev) => ({
                         ...prev,
-                        expectedObjectCount: prev.inspectionROIs.length + 1,
+                        expectedObjectCount: [...prev.inspectionROIs, newRoi].filter((roi) => roi.expectedObjectPresence !== false).length,
                         inspectionROIs: [...prev.inspectionROIs, newRoi],
                         referenceImages: prev.referenceImages.map((reference) => ({
                           ...reference,
@@ -911,7 +969,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                               const remaining = editedRevision.inspectionROIs.filter((item) => item.id !== roi.id);
                               setEditedRevision((prev) => ({
                                 ...prev,
-                                expectedObjectCount: remaining.length,
+                                expectedObjectCount: remaining.filter((item) => item.expectedObjectPresence !== false).length,
                                 inspectionROIs: remaining,
                                 referenceImages: (prev.referenceImages || []).map((reference) => {
                                   const roiLayouts = { ...(reference.roiLayouts || {}) };
@@ -932,6 +990,29 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <div>Height: {((roi.height ?? roi.radius * 2) * 100).toFixed(1)}%</div>
                           <div>Match: {(roi.minConfidence * 100).toFixed(0)}%</div>
                           <div className="col-span-2 flex items-center gap-2">
+                            <span>Object:</span>
+                            <select value={roi.objectType} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const objectType = event.target.value as InspectionROI['objectType'];
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, objectType } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="screw">Screw / Bolt</option>
+                              <option value="connector">Connector</option>
+                              <option value="clip">Clip</option>
+                              <option value="label">Label</option>
+                              <option value="component">Component</option>
+                            </select>
+                          </div>
+                          <label className="col-span-2 flex items-center gap-2 text-[10px] text-slate-300">
+                            <input type="checkbox" checked={roi.expectedObjectPresence !== false} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const expectedObjectPresence = event.target.checked;
+                              setEditedRevision((prev) => {
+                                const inspectionROIs = prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedObjectPresence } : item);
+                                return { ...prev, inspectionROIs, expectedObjectCount: inspectionROIs.filter((item) => item.expectedObjectPresence !== false).length };
+                              });
+                            }} />
+                            Object must be physically present in this ROI
+                          </label>
+                          <div className="col-span-2 flex items-center gap-2">
                             <span>Comparison:</span>
                             <select value={roi.comparisonMode ?? "BALANCED"} onClick={(event) => event.stopPropagation()} onChange={(event) => {
                               const comparisonMode = event.target.value as NonNullable<InspectionROI["comparisonMode"]>;
@@ -941,6 +1022,45 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                               <option value="STRUCTURE_FIRST">Structure first</option>
                               <option value="INTENSITY_FIRST">Intensity first</option>
                             </select>
+                          </div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            <span>Polarity:</span>
+                            <select value={roi.expectedPolarity ?? 'contrast'} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const expectedPolarity = event.target.value as NonNullable<InspectionROI['expectedPolarity']>;
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, expectedPolarity } : item) }));
+                            }} className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-cyan-300">
+                              <option value="contrast">Auto contrast</option>
+                              <option value="bright_on_dark">Bright on dark</option>
+                              <option value="dark_on_bright">Dark on bright</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Position tolerance</span><span>{(((roi.toleranceRadius ?? 0.05) * 100)).toFixed(1)}% ROI</span></div>
+                            <input type="range" min="0.005" max="0.25" step="0.005" value={roi.toleranceRadius ?? 0.05} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const toleranceRadius = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, toleranceRadius } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Size tolerance</span><span>{(((roi.sizeToleranceRatio ?? 0.35) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.05" max="1" step="0.05" value={roi.sizeToleranceRatio ?? 0.35} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const sizeToleranceRatio = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, sizeToleranceRatio } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>Contour / shape tolerance</span><span>{(((roi.shapeToleranceRatio ?? 0.10) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.05" max="0.4" step="0.01" value={roi.shapeToleranceRatio ?? 0.10} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const shapeToleranceRatio = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, shapeToleranceRatio } : item) }));
+                            }} className="w-full accent-cyan-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <div className="flex justify-between"><span>OK/NG separation margin</span><span>{(((roi.minClassMargin ?? 0.06) * 100)).toFixed(0)}%</span></div>
+                            <input type="range" min="0.02" max="0.3" step="0.01" value={roi.minClassMargin ?? 0.06} onClick={(event) => event.stopPropagation()} onChange={(event) => {
+                              const minClassMargin = Number(event.target.value);
+                              setEditedRevision((prev) => ({ ...prev, inspectionROIs: prev.inspectionROIs.map((item) => item.id === roi.id ? { ...item, minClassMargin } : item) }));
+                            }} className="w-full accent-cyan-500" />
                           </div>
                           <div>Reference: {editedRevision.referenceImages?.filter((reference) => (reference.kind || 'OK') === 'OK' && reference.imageUrl).length} OK / {editedRevision.referenceImages?.filter((reference) => reference.kind === 'NG' && reference.imageUrl).length} NG</div>
                         </div>
@@ -1011,7 +1131,9 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                   </div>
                 </div>
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-[10px] leading-5 text-slate-400">
-                  Position, screw-count, and rotation tolerances are not used. Each live rectangle is classified against the configured OK/NG reference crops, using the layout saved separately for each reference image.
+                  {isEightPointPresenceMode
+                    ? 'Eight-point mode first aligns the moving workpiece, then checks each of the eight screw slots independently against the positive OK Master. Confirmed absence is NG; weak or blurred evidence remains INVALID. Final thresholds require calibration with real station images.'
+                    : 'Each ROI checks physical presence, spatial edge features, contour/shape, relative size, and position against its own OK/NG reference crops. Alignment and camera movement are checked separately before ROI mapping. Final thresholds still require calibration with real station images.'}
                 </div>
               </div>
             )}

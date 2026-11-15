@@ -65,16 +65,20 @@ export interface AlignmentResult {
 export interface ROIInspectionResult {
   roiId: string;
   roiName: string;
+  /** Stable row-major slot ID for eight-point screw inspection. */
+  inspectionPointId?: string;
   objectType: string;
   masterPosition: Position2D; // Master normalized position
   expectedTransformedPosition: Position2D; // In current frame coordinates (normalized)
-  actualDetectedPosition: Position2D | null; // Detected center
-  positionOffsetPx: number;
-  positionOffsetMm: number;
+  actualDetectedPosition: Position2D | null; // Detected foreground centroid in normalized frame coordinates
+  positionOffsetPx: number | null;
+  /** Null until a calibrated pixel-to-mm conversion is configured. */
+  positionOffsetMm: number | null;
   isWithinTolerance: boolean;
   confidence: number;
+  /** True only when foreground/object evidence was detected in this ROI. */
   isPresent: boolean;
-  /** Evidence classification prevents low-confidence absence from becoming automatic NG. */
+  /** Physical presence evidence; UNCERTAIN must never be promoted to OK or NG. */
   evidence: 'PRESENT' | 'ABSENT' | 'UNCERTAIN';
   status: 'PASS' | 'FAIL' | 'WARNING';
   failureReason?: string;

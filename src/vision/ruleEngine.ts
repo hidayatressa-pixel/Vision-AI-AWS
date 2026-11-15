@@ -10,6 +10,8 @@ import {
   ROIInspectionResult,
 } from '../types/inspection';
 import { MasterRevision } from '../types/master';
+import { getMasterValidationChecks } from '../services/setupValidation';
+import { evaluateEightPointPresence, isEightPointPresenceCandidate } from './eightPointPresenceEngine';
 
 export interface RuleEvaluationResult {
   judgement: JudgementResult;
@@ -27,30 +29,20 @@ export class RuleEngine {
     extraObjects: ExtraDetectedObject[]
   ): RuleEvaluationResult {
     void extraObjects;
-    const expectedCount = revision.inspectionROIs.length;
+    const expectedCount = revision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length;
     const defects: DefectItem[] = [];
 
     const references = (revision.referenceImages || []).filter((reference) => Boolean(reference.imageUrl));
     const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
     const ngReferences = references.filter((reference) => reference.kind === 'NG');
-    const invalidConfiguration =
-      revision.masterWidth <= 0 ||
-      revision.masterHeight <= 0 ||
-      !revision.masterImageUrl ||
-      expectedCount === 0 ||
-      okReferences.length < 1 ||
-      ngReferences.length < 1;
-    if (invalidConfiguration) {
-      const details = [
-        !revision.masterImageUrl ? 'master image missing' : '',
-        expectedCount === 0 ? 'no rectangular ROI configured' : '',
-        `reference set incomplete (OK ${okReferences.length}, NG ${ngReferences.length}; need at least one of each)`,
-      ].filter(Boolean).join('; ');
+    const failedMasterChecks = getMasterValidationChecks(revision).filter((check) => !check.valid);
+    if (failedMasterChecks.length > 0) {
+      const details = failedMasterChecks.map((check) => `${check.label}: ${check.error || check.detail}`).join('; ');
       defects.push({
         code: 'MASTER_CONFIGURATION_INVALID',
-        message: 'Multi-reference ROI configuration is incomplete: ' + details,
-        expected: 'At least one rectangle ROI and at least one uploaded OK plus one uploaded NG reference',
-        actual: 'Configuration incomplete',
+        message: 'Master configuration failed runtime validation: ' + details,
+        expected: 'A complete, valid Master with usable OK/NG references, ROI layouts, and alignment settings',
+        actual: `${failedMasterChecks.length} validation check(s) failed (OK refs ${okReferences.length}, NG refs ${ngReferences.length})`,
       });
       return {
         judgement: 'INVALID',
@@ -71,8 +63,25 @@ export class RuleEngine {
       return { judgement: 'INVALID', primaryReason: defects[0].message, defects, expectedCount, detectedCount: 0 };
     }
 
+    if (isEightPointPresenceCandidate(revision.inspectionROIs)) {
+      const eightPoint = evaluateEightPointPresence(revision.inspectionROIs, roiResults);
+      const summary = eightPoint.judgement === 'OK'
+        ? 'All 8 required screw positions are confirmed present'
+        : eightPoint.judgement === 'NG'
+          ? `${eightPoint.missingCount} of 8 required screw positions are confirmed missing`
+          : `${eightPoint.uncertainCount} screw position(s) could not be verified`;
+      return {
+        judgement: eightPoint.judgement,
+        primaryReason: summary,
+        defects: eightPoint.defects,
+        expectedCount: eightPoint.expectedCount,
+        detectedCount: eightPoint.detectedCount,
+      };
+    }
+
     const resultById = new Map(roiResults.map((result) => [result.roiId, result]));
     let passedCount = 0;
+    let detectedCount = 0;
     let uncertainCount = 0;
 
     for (const roi of revision.inspectionROIs) {
@@ -90,16 +99,22 @@ export class RuleEngine {
         continue;
       }
 
+      if (result.isPresent) detectedCount++;
+
       if (!result.isWithinTolerance || result.status === 'FAIL') {
         defects.push({
-          code: 'VISUAL_MISMATCH',
+          code: result.evidence === 'ABSENT'
+            ? 'MISSING_PART'
+            : roi.expectedObjectPresence === false && result.isPresent
+              ? 'EXTRA_OBJECT_DETECTED'
+              : 'VISUAL_MISMATCH',
           roiId: roi.id,
           roiName: roi.name,
           message: result.failureReason || `${roi.name}: visual mismatch`,
           expected: `Similarity ≥ ${Math.round((roi.minConfidence || 0.75) * 100)}%`,
           actual: `${Math.round(result.confidence * 100)}% similarity`,
         });
-      } else {
+      } else if (roi.expectedObjectPresence !== false) {
         passedCount++;
       }
     }
@@ -110,7 +125,7 @@ export class RuleEngine {
         primaryReason: 'Inspection Invalid: one or more ROI comparisons lacked reliable image evidence',
         defects,
         expectedCount,
-        detectedCount: passedCount,
+        detectedCount,
       };
     }
 
@@ -120,7 +135,7 @@ export class RuleEngine {
         primaryReason: `All ${passedCount}/${expectedCount} rectangular ROI comparisons classified as OK using ${okReferences.length} OK / ${ngReferences.length} NG references`,
         defects: [],
         expectedCount,
-        detectedCount: passedCount,
+        detectedCount,
       };
     }
 
@@ -129,7 +144,7 @@ export class RuleEngine {
       primaryReason: defects[0]?.message || 'Visual mismatch detected',
       defects,
       expectedCount,
-      detectedCount: passedCount,
+      detectedCount,
     };
   }
 }

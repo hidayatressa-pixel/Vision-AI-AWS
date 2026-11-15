@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "audit:recognizer": "node scripts/adversarial-recognizer-audit.mjs"
+    "audit:recognizer": "node scripts/adversarial-recognizer-audit.mjs",
+    "audit:eight-point": "node --experimental-strip-types scripts/eight-point-presence-audit.mjs"
   },
   "dependencies": {
     "@opencvjs/web": "5.0.0-release.2",

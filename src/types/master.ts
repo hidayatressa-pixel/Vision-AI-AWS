@@ -69,6 +69,14 @@ export interface InspectionROI {
   expectedPolarity?: 'bright_on_dark' | 'dark_on_bright' | 'contrast';
   /** Backward-compatible default is BALANCED. */
   comparisonMode?: RoiComparisonMode;
+  /** Whether a physical object is expected inside this ROI; defaults to true. */
+  expectedObjectPresence?: boolean;
+  /** Minimum score separation between OK and NG references; defaults to 0.06. */
+  minClassMargin?: number;
+  /** Allowed relative foreground-area change from the OK reference; defaults to 0.35. */
+  sizeToleranceRatio?: number;
+  /** Allowed aspect/circularity/solidity change from the OK contour; defaults to 0.10. */
+  shapeToleranceRatio?: number;
 }
 
 export interface ToleranceConfig {
