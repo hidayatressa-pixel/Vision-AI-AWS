@@ -39,6 +39,8 @@ export interface ReferenceImage {
   id: string;
   label: string;
   imageUrl: string;
+  /** Private Supabase Storage object path; imageUrl is a temporary signed URL at runtime. */
+  storagePath?: string;
   /** Class label used by multi-reference visual classification. Legacy references default to OK. */
   kind?: ReferenceClass;
   /** Each reference image can have its own independently editable ROI layout, keyed by InspectionROI.id. */
@@ -107,6 +109,13 @@ export interface MasterRevision {
   referenceImages: ReferenceImage[];
   tolerance: ToleranceConfig;
   masterImageUrl: string;
+  /** Private Supabase Storage object path for the master image. */
+  masterImagePath?: string;
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'REJECTED' | 'APPROVED';
+  checksum?: string;
+  approvedBy?: string | null;
+  submittedAt?: string | null;
+  approvedAt?: string | null;
   masterWidth: number;
   masterHeight: number;
   detectionZone: Box2D;
