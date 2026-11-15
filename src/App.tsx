@@ -23,7 +23,7 @@ import { CameraSourceMode } from './types/device';
 import { createRemoteCameraSession } from './services/remoteCamera';
 import { PhoneCameraView } from './components/camera/PhoneCameraView';
 import { getMasterValidationChecks } from './services/setupValidation';
-import { activateAwsSession, endAwsSession, saveConfigurationToAws } from './services/visionCloud';
+import { activateVisionSession, endVisionSession, saveConfigurationToVisionBackend } from './services/visionCloud';
 import { LockKeyhole, ScanLine, ShieldCheck } from 'lucide-react';
 import { AuthGate } from './components/auth/AuthGate';
 
@@ -272,7 +272,7 @@ function VisionApp() {
       localStorage.setItem('vision-ai-session-active', '1');
       setSystemMessage('INSPECTION SESSION STARTED — CONNECTING TO VISION BACKEND...');
       setSystemMessageLevel('info');
-      void activateAwsSession({
+      void activateVisionSession({
         productCode: activeMaster?.productCode || 'UNKNOWN',
         revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
       }).then(() => {
@@ -317,7 +317,7 @@ function VisionApp() {
     setSessionEnding(true);
     finalizeEndSession('LIVE INSPECTION ENDED — CONFIGURATION WAS NOT SAVED', 'warning');
     setSessionEnding(false);
-    void endAwsSession({
+    void endVisionSession({
       productCode: activeMaster?.productCode || 'UNKNOWN',
       revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
     }).catch((error) => {
@@ -334,7 +334,7 @@ function VisionApp() {
     setSystemMessage('SAVING CONFIGURATION TO VISION BACKEND...');
     setSystemMessageLevel('info');
     try {
-      await saveConfigurationToAws({
+      await saveConfigurationToVisionBackend({
         setupStep,
         camera: { sourceMode: cameraSourceMode, selectedDeviceId: camera.selectedDeviceId },
         master: activeMaster,
@@ -342,7 +342,7 @@ function VisionApp() {
         savedAt: new Date().toISOString(),
       });
       finalizeEndSession('CONFIGURATION SAVED — LIVE INSPECTION SESSION ENDED', 'success');
-      void endAwsSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
+      void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
         console.error('[AWS session end]', error);
         setSystemMessage('CONFIGURATION SAVE CONFIRMED — BACKEND END EVENT COULD NOT BE CONFIRMED');
         setSystemMessageLevel('warning');
