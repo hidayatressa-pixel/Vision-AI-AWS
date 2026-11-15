@@ -222,18 +222,21 @@ class DatabaseService {
     const role = await this.getCurrentUserRole();
     const query = '?station_id=' + encodeURIComponent(VISION_STATION_ID);
     let cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
-    if (cloud.length === 0 && !this.migrationAttempted) {
-      if (role === 'ENGINEER' || role === 'ADMIN') {
-        const legacy = await this.getLegacyLocalMasters();
-        if (legacy.length) {
-          this.migrationAttempted = true;
-          for (const master of legacy) {
-            for (const revision of master.revisions) {
-              await this.saveMaster({ ...master, revisions: [revision] });
-            }
+    if (!this.migrationAttempted && (role === 'ENGINEER' || role === 'ADMIN')) {
+      const legacy = await this.getLegacyLocalMasters();
+      if (legacy.length) {
+        this.migrationAttempted = true;
+        this.knownMasterIds = new Set(cloud.map((master) => master.id));
+        this.masterCache = new Map(cloud.map((master) => [master.id, master]));
+        for (const localMaster of legacy) {
+          const cloudMaster = cloud.find((master) => master.id === localMaster.id);
+          if (!cloudMaster && cloud.some((master) => master.productCode === localMaster.productCode)) continue;
+          for (const revision of localMaster.revisions) {
+            if (cloudMaster?.revisions.some((item) => item.id === revision.id || item.revisionCode === revision.revisionCode)) continue;
+            await this.saveMaster({ ...localMaster, revisions: [revision] });
           }
-          cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
         }
+        cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
       }
     }
     const materialized = await Promise.all(cloud.map((master) => this.materializeMaster(master)));
