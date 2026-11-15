@@ -7,7 +7,7 @@
  */
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
-import { MasterProduct } from '../types/master';
+import { MasterProduct, MasterRevision } from '../types/master';
 import { getSupabaseAccessToken, getVisionApiBaseUrl, supabase } from './supabase';
 
 const VISION_API_URL = getVisionApiBaseUrl();
