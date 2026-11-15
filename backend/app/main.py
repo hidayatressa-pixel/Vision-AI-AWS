@@ -842,8 +842,7 @@ def save_master_revision(
                on conflict (master_id,id) do update set
                  revision_code=excluded.revision_code, revision_note=excluded.revision_note,
                  status='DRAFT', revision_payload=excluded.revision_payload, checksum=excluded.checksum,
-                 created_by=excluded.created_by, submitted_at=null, submitted_by=null,
-                 approved_by=null, approved_at=null, updated_at=now()
+                 submitted_at=null, submitted_by=null, approved_by=null, approved_at=null, updated_at=now()
                where vision_master_revisions.status in ('DRAFT','REJECTED')""",
             (revision_id, master_id, str(revision.get("revisionCode") or ""),
              str(revision.get("revisionNote") or ""), Jsonb(revision_snapshot), checksum, actor),
