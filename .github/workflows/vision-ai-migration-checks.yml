@@ -25,6 +25,12 @@ jobs:
       - run: npm run audit:recognizer
       - run: npm run audit:eight-point
       - run: npm run build
+      - name: Smoke test deployed trial frontend
+        run: |
+          set -euo pipefail
+          html="$(curl --retry 5 --retry-delay 5 --retry-all-errors --max-time 20 -fsS https://vision-ai-aws-trial.onrender.com/)"
+          printf '%s' "$html" | grep -q 'id="root"'
+          printf '%s' "$html" | grep -Eq 'assets/[^"]+\.js'
 
   backend:
     name: Backend dependency and syntax check
@@ -47,3 +53,6 @@ jobs:
           auth_status="$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' https://vision-ai-aws-api.onrender.com/v1/inspection-history)"
           echo "Unauthenticated history request HTTP $auth_status (expected 401)"
           test "$auth_status" = "401"
+          cors_headers="$(curl --retry 5 --retry-delay 5 --retry-all-errors --max-time 20 -sS -D - -o /dev/null -X OPTIONS https://vision-ai-aws-api.onrender.com/v1/events -H 'Origin: https://vision-ai-aws-trial.onrender.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type')"
+          printf '%s\n' "$cors_headers"
+          printf '%s\n' "$cors_headers" | grep -qi '^access-control-allow-origin: https://vision-ai-aws-trial.onrender.com'
