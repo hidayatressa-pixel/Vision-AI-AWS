@@ -274,9 +274,33 @@ function VisionApp() {
   const handleStartSession = async () => {
     if (sessionActive || sessionStarting || !setupValidated || !cameraReady || !masterReady) return;
     setSessionStarting(true);
-    setSystemMessage('INITIALIZING INSPECTION SESSION...');
+    setSystemMessage('VERIFYING APPROVED MASTER ASSIGNMENT...');
     setSystemMessageLevel('info');
     try {
+      // Re-read the station assignment immediately before opening a production
+      // session. A different browser may have activated a newer approved Master.
+      const latestMasters = await dbService.getAllMasters();
+      setMasters(latestMasters);
+      const assignedMaster = latestMasters.find((master) => master.isActive && master.activeRevisionId);
+      const assignedRevision = assignedMaster?.revisions.find((revision) =>
+        revision.id === assignedMaster.activeRevisionId && revision.status === 'APPROVED'
+      ) || null;
+      if (!assignedMaster || !assignedRevision ||
+          assignedMaster.id !== activeMaster?.id ||
+          assignedRevision.id !== activeRevision?.id ||
+          assignedRevision.checksum !== activeRevision?.checksum) {
+        setActiveMaster(assignedMaster || null);
+        setActiveRevision(assignedRevision);
+        setSetupValidated(false);
+        setSetupStep(2);
+        setActiveTab('MASTERS');
+        pipeline.resetPipeline();
+        setSystemMessage('MASTER ASSIGNMENT CHANGED — REVIEW AND REVALIDATE THE APPROVED STATION MASTER');
+        setSystemMessageLevel('warning');
+        return;
+      }
+      setSystemMessage('INITIALIZING INSPECTION SESSION...');
+      setSystemMessageLevel('info');
       const started = await pipeline.startSession();
       if (!started) {
         setSystemMessage('SESSION START FAILED — CAMERA FRAME OR BASELINE IS NOT READY');
