@@ -60,7 +60,7 @@ Do not put a Supabase service-role key or database superuser credential in the f
 - Allowed MIME types: JPG, PNG, WEBP.
 - Maximum file size: 25 MiB.
 - Storage paths are namespaced by Master ID and revision ID.
-- Storage RLS allows signed-in Vision users to read, Engineers/Admins to upload, and only to update assets belonging to DRAFT/REJECTED revisions. Admin deletion is also limited to DRAFT/REJECTED revision assets. A cloned revision receives independent Storage object paths. The legacy `customer-files` bucket is not changed.
+- Storage RLS lets Operators read only assets for the approved Master revision assigned to one of their stations. Engineers/Approvers/Admins can read all Master assets. Engineers/Admins can upload and only update assets belonging to DRAFT/REJECTED revisions. Admin deletion is also limited to DRAFT/REJECTED revision assets. A cloned revision receives independent Storage object paths. The legacy `customer-files` bucket is not changed.
 
 ## Existing local Master migration
 
