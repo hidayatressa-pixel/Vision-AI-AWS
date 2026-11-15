@@ -36,7 +36,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   onSaved,
 }) => {
   const [activeTab, setActiveTab] = useState<'VISUAL' | 'TOLERANCES'>('VISUAL');
-  const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision });
+  const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision, inspectionProfile: revision.inspectionProfile ?? (isEightPointPresenceCandidate(revision.inspectionROIs) ? 'EIGHT_POINT_PRESENCE' : 'STANDARD') });
   const [editedProductName, setEditedProductName] = useState(master.productName);
   const [editedProductCode, setEditedProductCode] = useState(master.productCode);
   const [selectedItemType, setSelectedItemType] = useState<'ANCHOR' | 'ROI'>('ROI');
@@ -44,7 +44,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const [saveError, setSaveError] = useState<string | null>(null);
-  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs);
+  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs, editedRevision.inspectionProfile);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -90,7 +90,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
       });
     });
-    setEditedRevision({ ...revision, roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
+    setEditedRevision({ ...revision, inspectionProfile: revision.inspectionProfile ?? (isEightPointPresenceCandidate(revision.inspectionROIs) ? 'EIGHT_POINT_PRESENCE' : 'STANDARD'), roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
     setSelectedReferenceId(normalized[0]?.id || '');
     setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
@@ -513,6 +513,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
+      inspectionProfile: editedRevision.inspectionProfile ?? 'STANDARD',
       // Preserve engineer-configured alignment anchors; saving a master must never erase calibration data.
       anchors: editedRevision.anchors || [],
       expectedObjectCount: editedRevision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length,
@@ -600,7 +601,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
             <label className="space-y-1">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Name</span>
               <input value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. Lamp Assembly" />
@@ -608,6 +609,18 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             <label className="space-y-1">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Code</span>
               <input value={editedProductCode} onChange={(event) => setEditedProductCode(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. LAMP-ASSY-001" />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Inspection Profile</span>
+              <select value={editedRevision.inspectionProfile ?? 'STANDARD'}
+                onChange={(event) => setEditedRevision((prev) => ({
+                  ...prev,
+                  inspectionProfile: event.target.value as 'STANDARD' | 'EIGHT_POINT_PRESENCE',
+                }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                <option value="STANDARD">Standard ROI Inspection</option>
+                <option value="EIGHT_POINT_PRESENCE">Eight-Point Screw Presence (4-2-2)</option>
+              </select>
             </label>
           </div>
           {/* Interactive Canvas Area */}
@@ -866,6 +879,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       setEditedRevision((prev) => ({
                         ...prev,
                         expectedObjectCount: 8,
+                        inspectionProfile: 'EIGHT_POINT_PRESENCE',
                         inspectionROIs: slots,
                         referenceImages: prev.referenceImages.map((reference) => ({
                           ...reference,
