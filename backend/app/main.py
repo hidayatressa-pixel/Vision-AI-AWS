@@ -880,11 +880,13 @@ def create_session(
         # The same advisory lock is acquired by the assignment trigger.
         connection.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (station_id,))
         latest = connection.execute(
-            "select action from public.vision_sessions where station_id=%s order by created_at desc limit 1",
+            """select action, (created_at > now() - interval '16 hours') as is_recent
+               from public.vision_sessions where station_id=%s
+               order by created_at desc limit 1""",
             (station_id,),
         ).fetchone()
         if payload.action == "START_SESSION":
-            if latest and latest["action"] == "START_SESSION":
+            if latest and latest["action"] == "START_SESSION" and latest["is_recent"]:
                 raise HTTPException(status_code=409, detail="A Live Inspection session is already active on this station")
             if not master_id or not revision_id or not revision_checksum:
                 raise HTTPException(status_code=422, detail="Session must include exact Master/revision IDs and checksum")
