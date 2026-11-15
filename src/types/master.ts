@@ -75,6 +75,10 @@ export interface InspectionROI {
   expectedObjectPresence?: boolean;
   /** Minimum score separation between OK and NG references; defaults to 0.06. */
   minClassMargin?: number;
+  /** Minimum color signature similarity to the labelled Master reference; defaults to 0.55. */
+  minColorSimilarity?: number;
+  /** Weight assigned to RGB chromaticity in the combined recognition score; defaults to 0.15. */
+  colorWeight?: number;
   /** Allowed relative foreground-area change from the OK reference; defaults to 0.35. */
   sizeToleranceRatio?: number;
   /** Allowed aspect/circularity/solidity change from the OK contour; defaults to 0.10. */
