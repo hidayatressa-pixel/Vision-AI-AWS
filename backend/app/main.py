@@ -159,13 +159,21 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
         if not row or not row["is_active"]:
             raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
         if row["role"] == "OPERATOR":
-            connection.execute(
+            station_access = connection.execute(
                 """insert into public.vision_user_station_access
                    (user_id,station_id,is_active,assigned_by)
                    values (%s,%s,true,%s)
-                   on conflict (user_id,station_id) do nothing""",
+                   on conflict (user_id,station_id) do nothing
+                   returning station_id""",
                 (user_id, DEFAULT_STATION_ID, user_id),
-            )
+            ).fetchone()
+            if station_access:
+                connection.execute(
+                    """insert into public.vision_user_station_audit_logs
+                       (target_user_id,station_id,previous_active,new_active,actor_id)
+                       values (%s,%s,null,true,%s)""",
+                    (user_id, DEFAULT_STATION_ID, user_id),
+                )
     return str(row["role"])
 
 
