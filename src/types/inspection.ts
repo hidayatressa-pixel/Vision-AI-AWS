@@ -116,6 +116,7 @@ export interface InspectionRecord {
   masterId: string;
   masterRevisionId: string;
   masterRevisionCode: string;
+  masterRevisionChecksum: string;
   judgement: JudgementResult;
   expectedCount: number;
   detectedCount: number;
