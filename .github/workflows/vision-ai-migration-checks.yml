@@ -22,6 +22,8 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run lint
+      - run: npm run audit:recognizer
+      - run: npm run audit:eight-point
       - run: npm run build
 
   backend:
