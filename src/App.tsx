@@ -178,6 +178,7 @@ function VisionApp() {
         masterId: productId,
         revisionCode: 'REV-01',
         revisionNote: 'New product inspection profile',
+        inspectionProfile: 'STANDARD',
         status: 'DRAFT',
         checksum: undefined,
         approvedBy: null,
