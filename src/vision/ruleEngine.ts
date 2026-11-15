@@ -86,7 +86,7 @@ export class RuleEngine {
 
     for (const roi of revision.inspectionROIs) {
       const result = resultById.get(roi.id);
-      if (!result || result.evidence === 'UNCERTAIN') {
+      if (!result || result.evidence === 'UNCERTAIN' || result.status === 'WARNING') {
         uncertainCount++;
         defects.push({
           code: 'LOW_CONFIDENCE',
