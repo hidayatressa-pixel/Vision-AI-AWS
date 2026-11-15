@@ -895,7 +895,6 @@ def create_session(
                 join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
                 where a.station_id=%s and a.master_id=%s and a.revision_id=%s
                   and m.product_code=%s and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
-                for share of a
                 """,
                 (station_id, master_id, revision_id, context.get("productCode"), context.get("revisionCode"), revision_checksum),
             ).fetchone()
