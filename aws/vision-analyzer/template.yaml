@@ -2,6 +2,12 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Vision-AI AWS evidence analyzer using OpenCV 5 in Lambda.
 
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: https://hidayatressa-pixel.github.io
+    Description: Browser origin allowed to call the public demonstration API.
+
 Globals:
   Function:
     Timeout: 30
@@ -48,7 +54,7 @@ Resources:
     Properties:
       StageName: Prod
       Cors:
-        AllowOrigin: "'*'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
         AllowMethods: "'OPTIONS,POST'"
         AllowHeaders: "'Content-Type'"
       MethodSettings:
@@ -70,6 +76,7 @@ Resources:
         Variables:
           OUTPUT_PREFIX: results/
           EVIDENCE_BUCKET: !Ref EvidenceBucket
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "vision-ai-evidence-${AWS::AccountId}-${AWS::Region}"
