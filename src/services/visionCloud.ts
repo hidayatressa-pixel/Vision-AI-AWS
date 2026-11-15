@@ -1,4 +1,7 @@
-const VISION_EVENT_API_URL = String(import.meta.env.VITE_VISION_EVENT_API_URL || '').trim();
+import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
+
+const VISION_API_URL = getVisionApiBaseUrl();
+const REQUEST_TIMEOUT_MS = 8000;
 
 export interface VisionCloudEvent {
   status: 'OK' | 'NG' | 'INVALID' | 'ERROR' | 'STANDBY';
@@ -21,19 +24,41 @@ function clampConfidence(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-export async function sendVisionEvent(event: VisionCloudEvent): Promise<void> {
-  if (!VISION_EVENT_API_URL) return;
+async function postAuthenticated(path: string, payload: unknown): Promise<Response> {
+  if (!VISION_API_URL) {
+    throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
+  }
+
+  const token = await getSupabaseAccessToken();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(VISION_EVENT_API_URL, {
+    return await fetch(`${VISION_API_URL}${path}`, {
       method: 'POST',
       headers: {
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(event),
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Vision backend request timed out after 8 seconds.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
+export async function sendVisionEvent(event: VisionCloudEvent): Promise<void> {
+  if (!VISION_API_URL) return;
+  try {
+    const response = await postAuthenticated('/v1/events', event);
     if (!response.ok) {
-      throw new Error(`Vision API returned HTTP ${response.status}`);
+      const body = await response.text().catch(() => '');
+      throw new Error(`Vision backend rejected event (HTTP ${response.status}): ${body}`);
     }
   } catch (error) {
     console.error('[VisionCloud] Event send failed:', error);
@@ -52,17 +77,15 @@ export function sendInspectionResult(params: {
   expectedCount: number;
   reason: string;
 }): void {
-  const roiValues = params.roiConfidences.filter(Number.isFinite);
   const confidenceValues = [
     clampConfidence(params.alignmentConfidence),
-    ...roiValues.map(clampConfidence),
+    ...params.roiConfidences.filter(Number.isFinite).map(clampConfidence),
   ];
-  const confidence =
-    confidenceValues.length > 0
-      ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
-      : 0;
+  const confidence = confidenceValues.length
+    ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+    : 0;
 
-  const event: VisionCloudEvent = {
+  void sendVisionEvent({
     status: params.status,
     confidence: Number(confidence.toFixed(3)),
     mode: 'CONTINUOUS',
@@ -74,16 +97,12 @@ export function sendInspectionResult(params: {
     detectedCount: params.detectedCount,
     expectedCount: params.expectedCount,
     reason: params.reason,
-  };
-
-  void sendVisionEvent(event);
+  });
 }
 
 export function sendStandbyEvent(jig: string): void {
   if (lastLifecycleStatus === 'STANDBY') return;
-
   lastLifecycleStatus = 'STANDBY';
-
   void sendVisionEvent({
     status: 'STANDBY',
     confidence: 1,
@@ -97,73 +116,38 @@ export function markInspectionLifecycleComplete(status: 'OK' | 'NG' | 'INVALID' 
   lastLifecycleStatus = status;
 }
 
-
 export interface AwsSessionContext {
   productCode: string;
   revisionCode: string;
 }
 
-const REQUEST_TIMEOUT_MS = 8000;
-const SESSION_API_URL = String(import.meta.env.VITE_VISION_SESSION_API_URL || '').trim();
-
-async function postJsonWithTimeout(url: string, payload: unknown): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('AWS request timed out after 8 seconds.');
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-/**
- * Sends an explicit lifecycle event to the currently configured Vision API.
- * HTTP success confirms that the endpoint accepted the event; it does not
- * claim that a separate cloud worker is running unless the backend says so.
- */
 export async function activateAwsSession(context: AwsSessionContext): Promise<void> {
-  if (!SESSION_API_URL) {
-    throw new Error('AWS session API is not configured. Set VITE_VISION_SESSION_API_URL to the deployed /Prod/session endpoint.');
-  }
-  const response = await postJsonWithTimeout(SESSION_API_URL, {
+  const response = await postAuthenticated('/v1/sessions', {
     action: 'START_SESSION',
     context: { ...context, stationId: 'VISION-AI-AWS' },
     timestamp: new Date().toISOString(),
   });
   if (!response.ok) {
-    throw new Error(`AWS session activation request rejected (HTTP ${response.status}).`);
+    throw new Error(`Vision backend session activation rejected (HTTP ${response.status}).`);
   }
   const result = await response.json().catch(() => null) as { accepted?: boolean; success?: boolean; message?: string } | null;
   if (!result || result.accepted !== true || result.success !== true) {
-    throw new Error(result?.message || 'AWS did not confirm session activation.');
+    throw new Error(result?.message || 'Vision backend did not confirm session activation.');
   }
 }
 
 export async function endAwsSession(context: AwsSessionContext): Promise<void> {
-  if (!SESSION_API_URL) {
-    throw new Error('AWS session API is not configured. Set VITE_VISION_SESSION_API_URL to the deployed /Prod/session endpoint.');
-  }
-  const response = await postJsonWithTimeout(SESSION_API_URL, {
+  const response = await postAuthenticated('/v1/sessions', {
     action: 'END_SESSION',
     context: { ...context, stationId: 'VISION-AI-AWS' },
     timestamp: new Date().toISOString(),
   });
   if (!response.ok) {
-    throw new Error(`AWS session end request rejected (HTTP ${response.status}).`);
+    throw new Error(`Vision backend session end rejected (HTTP ${response.status}).`);
   }
   const result = await response.json().catch(() => null) as { accepted?: boolean; success?: boolean; message?: string } | null;
   if (!result || result.accepted !== true || result.success !== true) {
-    throw new Error(result?.message || 'AWS did not confirm session end.');
+    throw new Error(result?.message || 'Vision backend did not confirm session end.');
   }
 }
 
@@ -174,23 +158,16 @@ export async function saveConfigurationToAws(configuration: {
   revision: unknown;
   savedAt: string;
 }): Promise<void> {
-  const configUrl = String(import.meta.env.VITE_VISION_CONFIG_API_URL || '').trim();
-  if (!configUrl) {
-    throw new Error(
-      'AWS configuration storage is not configured. Set VITE_VISION_CONFIG_API_URL to the deployed configuration API endpoint.'
-    );
-  }
-
-  const response = await postJsonWithTimeout(configUrl, {
+  const response = await postAuthenticated('/v1/configurations', {
     action: 'SAVE_CONFIGURATION',
-    configuration,
+    configuration: { ...configuration, stationId: 'VISION-AI-AWS' },
   });
   if (!response.ok) {
-    throw new Error(`AWS configuration save failed (HTTP ${response.status}).`);
+    const body = await response.text().catch(() => '');
+    throw new Error(`Vision configuration save failed (HTTP ${response.status}): ${body}`);
   }
-
   const result = await response.json().catch(() => null) as { saved?: boolean; success?: boolean; message?: string } | null;
-  if (result && (result.saved === false || result.success === false)) {
-    throw new Error(result.message || 'AWS configuration API did not confirm the save.');
+  if (!result || result.saved !== true || result.success !== true) {
+    throw new Error(result?.message || 'Vision backend did not confirm configuration save.');
   }
 }
