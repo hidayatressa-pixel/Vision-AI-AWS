@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, LockKeyhole, ScanLine, ServerCog, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ScanLine, ServerCog, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 
 type Screen = 'welcome' | 'setup';
 
