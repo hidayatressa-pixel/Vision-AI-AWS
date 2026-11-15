@@ -24,10 +24,12 @@
 
 ## Roles
 
-- OPERATOR: read the approved revision assigned to the station and run inspection.
+- OPERATOR: access only explicitly assigned production stations, read the approved revision assigned to that station, and run inspection.
 - ENGINEER: create/edit drafts, submit, and assign approved revisions.
 - APPROVER: approve/reject pending revisions.
-- ADMIN: all governance actions and role assignment.
+- ADMIN: all governance actions, role assignment, and per-user station assignment.
+
+The first login of a new Operator receives the configured default station. Existing Operator accounts are backfilled to `VISION-AI-AWS`. Administrators can change an Operator's station list through Master Manager > USER ROLES; each change is written to immutable station-access audit history. An empty station list revokes all station access.
 
 The first administrator is bootstrapped from the backend `VISION_ADMIN_EMAILS` allowlist. The admin can assign roles from Master Manager > USER ROLES. Obtain the target user's UUID from Supabase Dashboard > Authentication > Users. The target email must also be in `VISION_ALLOWED_USER_EMAILS` unless it is an admin email.
 
@@ -41,6 +43,7 @@ Maker-checker compares the actual submitter UUID with the approver UUID, not jus
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`: existing Supabase Auth verification settings.
 - `VISION_ALLOWED_USER_EMAILS`: comma-separated users allowed to use the backend.
 - `VISION_ADMIN_EMAILS`: comma-separated bootstrap administrator emails.
+- `VISION_DEFAULT_STATION_ID`: backend default station; defaults to `VISION-AI-AWS` and should match the frontend `VITE_VISION_STATION_ID`.
 - `CORS_ORIGINS`: must include `https://vision-ai-aws-trial.onrender.com` and any development origin in use.
 
 Do not put a Supabase service-role key or database superuser credential in the frontend. The backend continues to use the dedicated `vision_backend` database role.
