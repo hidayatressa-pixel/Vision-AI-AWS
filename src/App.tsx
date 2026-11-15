@@ -17,7 +17,7 @@ import { useCamera } from './hooks/useCamera';
 import { useInspectionPipeline } from './hooks/useInspectionPipeline';
 import { soundService } from './services/audio';
 import { dbService } from './services/db';
-import { initSeedDataIfEmpty, SEED_PRODUCT_A } from './services/sampleData';
+import { SEED_PRODUCT_A } from './services/sampleData';
 import { MasterProduct, MasterRevision } from './types/master';
 import { CameraSourceMode } from './types/device';
 import { createRemoteCameraSession } from './services/remoteCamera';
@@ -38,7 +38,7 @@ function VisionApp() {
   }
   const [entryScreen, setEntryScreen] = useState<'welcome' | 'app'>('welcome');
   const [activeTab, setActiveTab] = useState<ActiveTab>('CAMERA_SETUP');
-  const [role] = useState<UserRole>('OPERATOR');
+  const [role, setRole] = useState<UserRole>('OPERATOR');
   const [isMuted, setIsMuted] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [masters, setMasters] = useState<MasterProduct[]>([]);
@@ -106,14 +106,25 @@ function VisionApp() {
     : '';
 
   const loadMasters = async () => {
-    await initSeedDataIfEmpty();
-    const allMasters = await dbService.getAllMasters();
+    const [allMasters, currentRole] = await Promise.all([
+      dbService.getAllMasters(),
+      dbService.getCurrentUserRole(),
+    ]);
+    setRole(currentRole);
     setMasters(allMasters);
-    if (allMasters.length > 0) {
-      const current = activeMaster ? allMasters.find((m) => m.id === activeMaster.id) || allMasters[0] : allMasters[0];
-      setActiveMaster(current);
-      setActiveRevision(current.revisions.find((r) => r.id === current.activeRevisionId) || current.revisions[0]);
+    const assigned = allMasters.find((master) => master.isActive && master.activeRevisionId);
+    if (assigned) {
+      const approvedRevision = assigned.revisions.find((revision) =>
+        revision.id === assigned.activeRevisionId && revision.status === 'APPROVED'
+      ) || null;
+      if (approvedRevision) {
+        setActiveMaster(assigned);
+        setActiveRevision(approvedRevision);
+        return;
+      }
     }
+    setActiveMaster(null);
+    setActiveRevision(null);
   };
 
   useEffect(() => {
@@ -129,9 +140,13 @@ function VisionApp() {
       return;
     }
 
-    setActiveMaster(master);
     const revId = revisionId || master.activeRevisionId;
-    setActiveRevision(master.revisions.find((r) => r.id === revId) || master.revisions[0]);
+    const assignedRevision = master.revisions.find((revision) =>
+      revision.id === revId && revision.status === 'APPROVED' && master.activeRevisionId === revision.id
+    );
+    if (!assignedRevision || !master.isActive) return;
+    setActiveMaster(master);
+    setActiveRevision(assignedRevision);
     pipeline.resetPipeline();
   };
 
@@ -183,7 +198,7 @@ function VisionApp() {
   // The virtual simulator is useful for demos but must not satisfy device readiness.
   const cameraReady = camera.cameraState === 'streaming';
   const masterValidationChecks = activeRevision ? getMasterValidationChecks(activeRevision) : [];
-  const masterReady = Boolean(activeMaster && activeRevision) && masterValidationChecks.every((check) => check.valid);
+  const masterReady = Boolean(activeMaster && activeRevision && activeRevision.status === 'APPROVED' && activeMaster.activeRevisionId === activeRevision.id) && masterValidationChecks.length > 0 && masterValidationChecks.every((check) => check.valid);
 
   const handleNavigate = (tab: ActiveTab) => {
     // Keep the required setup sequence intact; the public demo has no client-side PIN gate.
@@ -443,6 +458,7 @@ function VisionApp() {
 
         {setupStep === 2 && (
           <MasterManager
+            role={role}
             masters={masters}
             activeMaster={activeMaster}
             activeRevision={activeRevision}
@@ -551,7 +567,7 @@ function VisionApp() {
           <LiveInspectionView videoRef={camera.videoRef} canvasRef={camera.canvasRef} cameraState={camera.cameraState} errorMessage={camera.errorMessage} fps={camera.fps} videoDimensions={camera.videoDimensions} state={pipeline.state} stabilizationProgress={pipeline.stabilizationProgress} motionDelta={pipeline.motionDelta} currentResult={pipeline.currentResult} latestAlignment={pipeline.latestAlignment} latestRoiResults={pipeline.latestRoiResults} latestExtraObjects={pipeline.latestExtraObjects} stats={pipeline.stats} liveMetrics={pipeline.liveMetrics} plcHandshake={pipeline.plcHandshake} plcSignals={pipeline.plcSignals} activeMaster={activeMaster} activeRevision={activeRevision} role={role} processingFps={processingFps} setProcessingFps={setProcessingFps} isVirtualMode={camera.isVirtualMode} virtualScenario={camera.virtualScenario} setVirtualScenario={camera.setVirtualScenario} enableVirtualMode={camera.enableVirtualMode} enablePhysicalCamera={camera.enablePhysicalCamera} onOpenHistory={() => setActiveTab('HISTORY')} onOpenPlcConfig={() => handleNavigate('SETTINGS')} onEndSession={handleEndSessionRequest} onStartSession={handleStartSession} sessionActive={sessionActive} sessionStarting={sessionStarting} />)}
         {setupStep === 5 && activeTab === 'HISTORY' && <InspectionHistoryView onRefreshStats={pipeline.refreshStats} />}
         {setupStep === 5 && activeTab === 'SETTINGS' && <SettingsView onNavigate={handleNavigate} onClose={() => setActiveTab('INSPECTION')} />}
-        {setupStep === 5 && activeTab === 'MASTERS' && <MasterManager masters={masters} activeMaster={activeMaster} activeRevision={activeRevision} onSelectMaster={handleSelectMaster} onRefreshMasters={loadMasters} onOpenSetupModal={handleOpenSetupModal} onCreateNewMaster={handleCreateNewMaster} onBackSetup={handleBackToCameraSetup} onContinueSetup={handleNextMasterSetup} />}
+        {setupStep === 5 && activeTab === 'MASTERS' && <MasterManager role={role} masters={masters} activeMaster={activeMaster} activeRevision={activeRevision} onSelectMaster={handleSelectMaster} onRefreshMasters={loadMasters} onOpenSetupModal={handleOpenSetupModal} onCreateNewMaster={handleCreateNewMaster} onBackSetup={handleBackToCameraSetup} onContinueSetup={handleNextMasterSetup} />}
         {setupStep === 5 && activeTab === 'PLC_SETUP' && <PLCConfigurationView />}
         {setupStep === 5 && activeTab === 'DIAGNOSTICS' && <DiagnosticsModal metrics={pipeline.liveMetrics} />}
       </main>
