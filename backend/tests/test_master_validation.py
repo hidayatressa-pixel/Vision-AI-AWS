@@ -105,6 +105,14 @@ class StationAccessTests(unittest.TestCase):
         pool.connection.assert_not_called()
 
 
+    def test_approver_cannot_operate_a_production_station(self):
+        pool = MagicMock()
+        with self.assertRaises(HTTPException) as raised:
+            require_station_access({"id": "approver-1", "vision_role": "APPROVER"}, "LINE-01", pool)
+        self.assertEqual(raised.exception.status_code, 403)
+        pool.connection.assert_not_called()
+
+
 class MasterRevisionValidationTests(unittest.TestCase):
     def test_checksum_ignores_embedded_previous_checksum(self):
         payload = {"revisionCode": "REV-01", "inspectionROIs": [], "checksum": "old-value"}
