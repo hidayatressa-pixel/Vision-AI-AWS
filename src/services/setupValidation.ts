@@ -169,10 +169,10 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
       detail: eightPointMode
-        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} positive OK reference(s) · NG references optional for presence-only mode`
+        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG reference(s) for positive and empty-area verification`
         : `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
       error: eightPointMode
-        ? 'Add at least one uploaded OK reference showing the screw present, with a valid ROI crop.'
+        ? 'Add at least one uploaded OK reference showing the screw present and one uploaded NG reference showing the validated empty slot, with valid ROI crops.'
         : 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
