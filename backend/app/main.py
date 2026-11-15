@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
         conninfo=DATABASE_URL,
         min_size=1,
         max_size=5,
-        kwargs={"row_factory": dict_row},
+        kwargs={"row_factory": dict_row, "prepare_threshold": None},
         open=False,
     )
     pool.open(wait=True)
