@@ -109,6 +109,24 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
     }
   };
 
+  const handleAssignUserRole = async () => {
+    const userId = window.prompt('Paste the Supabase Auth User UUID:')?.trim();
+    if (!userId) return;
+    const email = window.prompt('Enter the user email:')?.trim();
+    if (!email) return;
+    const requestedRole = window.prompt('Role: OPERATOR, ENGINEER, APPROVER, or ADMIN', 'OPERATOR')?.trim().toUpperCase();
+    if (!requestedRole || !['OPERATOR', 'ENGINEER', 'APPROVER', 'ADMIN'].includes(requestedRole)) {
+      window.alert('Unsupported role. No changes were made.');
+      return;
+    }
+    try {
+      await dbService.assignUserRole(userId, email, requestedRole as 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN');
+      window.alert('User role updated. Ask the user to refresh the application.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'User role update failed.');
+    }
+  };
+
   const handleCloneRevision = async (master: MasterProduct, rev: MasterRevision) => {
     const newRevNum = master.revisions.length + 1;
     const newRevCode = `REV-0${newRevNum}`;
@@ -173,7 +191,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Product List */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3>{(role === 'ENGINEER' || role === 'ADMIN') && <button type="button" onClick={onCreateNewMaster} className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-cyan-500">+ NEW MASTER</button>}</div>
+          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3><div className="flex items-center gap-2">{role === 'ADMIN' && <button type="button" onClick={() => void handleAssignUserRole()} className="rounded-lg border border-amber-500/40 px-2.5 py-1.5 text-[10px] font-bold text-amber-200 hover:bg-amber-950/40">USER ROLES</button>}{(role === 'ENGINEER' || role === 'ADMIN') && <button type="button" onClick={onCreateNewMaster} className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-cyan-500">+ NEW MASTER</button>}</div></div>
 
           <div className="space-y-2">
             {masters.map((m) => {
