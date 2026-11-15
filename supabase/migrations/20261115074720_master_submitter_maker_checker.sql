@@ -29,7 +29,7 @@ begin
     end if;
     if new.status = 'APPROVED'
        and (new.approved_by is null or new.approved_by = old.submitted_by or new.approved_by = old.created_by) then
-      raise exception 'Maker-checker violation: submitter cannot approve own Master revision';
+      raise exception 'Maker-checker violation: creator and submitter cannot approve own Master revision';
     end if;
   end if;
   return new;
