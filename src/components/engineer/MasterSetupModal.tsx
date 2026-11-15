@@ -335,6 +335,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         setEditedRevision((prev) => ({
           ...prev,
           masterImageUrl: dataUrl,
+          masterImagePath: undefined,
           masterWidth: img.naturalWidth,
           masterHeight: img.naturalHeight,
         }));
@@ -479,7 +480,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       setEditedRevision((prev) => ({
         ...prev,
         referenceImages: (prev.referenceImages || []).map((reference) =>
-          reference.id === referenceId ? { ...reference, imageUrl: dataUrl } : reference
+          reference.id === referenceId ? { ...reference, imageUrl: dataUrl, storagePath: undefined } : reference
         ),
       }));
     };
