@@ -462,9 +462,6 @@ def create_master(
     code, name = str(master.get("productCode") or "").strip(), str(master.get("productName") or "").strip()
     if not all((mid, rid, code, name)):
         raise HTTPException(status_code=422, detail="Master/revision identifiers, product code, and name are required")
-    errors = _validate_master_revision(revision)
-    if errors:
-        raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
     actor = str(user.get("id"))
     checksum = _canonical_checksum(revision)
     with db.connection() as connection, connection.transaction():
@@ -493,9 +490,6 @@ def save_master_revision(
     revision = payload.revision
     if str(payload.master.get("id") or "") != master_id or str(revision.get("id") or "") != revision_id:
         raise HTTPException(status_code=422, detail="Master/revision identity mismatch")
-    errors = _validate_master_revision(revision)
-    if errors:
-        raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
     actor, checksum = str(user.get("id")), _canonical_checksum(revision)
     with db.connection() as connection, connection.transaction():
         exists = connection.execute("select id from public.vision_masters where id=%s for update", (master_id,)).fetchone()
