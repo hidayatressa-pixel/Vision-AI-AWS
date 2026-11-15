@@ -533,6 +533,8 @@ def _validate_master_revision(payload: dict[str, Any], master_id: str | None = N
     if use_eight_point_profile:
         if len(rois) != 8 or len(screw_rois) != 8:
             errors.append("Eight-point presence profile requires exactly eight required screw ROIs")
+        if len(anchors) < 3:
+            errors.append("Eight-point presence profile requires at least three non-collinear alignment anchors")
         heights = sorted(float(roi.get("height") or float(roi["radius"]) * 2) for roi in screw_rois)
         row_tolerance = max(0.02, heights[len(heights) // 2] * 0.75)
         rows: list[dict[str, Any]] = []
