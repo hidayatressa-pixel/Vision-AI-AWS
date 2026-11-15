@@ -183,6 +183,9 @@ class VisionEvent(FlexibleModel):
     confidence: float = Field(ge=0, le=1)
     mode: str = "CONTINUOUS"
     jig: str
+    stationId: str = "VISION-AI-AWS"
+    masterId: str | None = None
+    masterRevisionId: str | None = None
     inspectionId: str | None = None
     timestamp: datetime
     productCode: str | None = None
@@ -700,17 +703,35 @@ def create_event(
     if payload.status not in allowed_statuses:
         raise HTTPException(status_code=422, detail="Unsupported event status")
 
+    station_id = payload.stationId or payload.jig
     with db.connection() as connection:
+        if payload.status != "STANDBY":
+            if not payload.masterId or not payload.masterRevisionId:
+                raise HTTPException(status_code=422, detail="Inspection event must include exact Master and revision IDs")
+            assignment = connection.execute(
+                """
+                select 1 from public.vision_station_master_assignments a
+                join public.vision_masters m on m.id=a.master_id
+                join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
+                where a.station_id=%s and a.master_id=%s and a.revision_id=%s
+                  and m.product_code=%s and r.revision_code=%s and r.status='APPROVED'
+                """,
+                (station_id, payload.masterId, payload.masterRevisionId, payload.productCode, payload.revisionCode),
+            ).fetchone()
+            if not assignment:
+                raise HTTPException(status_code=409, detail="Event rejected: station assignment does not match the reported Master revision")
         row = connection.execute(
             """
             insert into public.vision_events
-              (status, confidence, mode, jig, inspection_id, event_timestamp,
-               product_code, revision_code, detected_count, expected_count, reason)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (status, confidence, mode, jig, station_id, master_id, master_revision_id,
+               inspection_id, event_timestamp, product_code, revision_code,
+               detected_count, expected_count, reason)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
                 payload.status, payload.confidence, payload.mode, payload.jig,
+                station_id, payload.masterId, payload.masterRevisionId,
                 payload.inspectionId, payload.timestamp, payload.productCode,
                 payload.revisionCode, payload.detectedCount, payload.expectedCount,
                 payload.reason,
@@ -730,17 +751,34 @@ def create_session(
 
     context = payload.context
     station_id = str(context.get("stationId") or "VISION-AI-AWS")
+    master_id = context.get("masterId")
+    revision_id = context.get("masterRevisionId")
     with db.connection() as connection:
+        if payload.action == "START_SESSION":
+            if not master_id or not revision_id:
+                raise HTTPException(status_code=422, detail="Session must include exact Master and revision IDs")
+            assignment = connection.execute(
+                """
+                select 1 from public.vision_station_master_assignments a
+                join public.vision_masters m on m.id=a.master_id
+                join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
+                where a.station_id=%s and a.master_id=%s and a.revision_id=%s
+                  and m.product_code=%s and r.revision_code=%s and r.status='APPROVED'
+                """,
+                (station_id, master_id, revision_id, context.get("productCode"), context.get("revisionCode")),
+            ).fetchone()
+            if not assignment:
+                raise HTTPException(status_code=409, detail="Session rejected: approved Master revision is not assigned to this station")
         row = connection.execute(
             """
             insert into public.vision_sessions
-              (station_id, action, product_code, revision_code, context, event_timestamp)
-            values (%s, %s, %s, %s, %s, %s)
+              (station_id, action, master_id, master_revision_id, product_code, revision_code, context, event_timestamp)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
-                station_id, payload.action, context.get("productCode"),
-                context.get("revisionCode"), Jsonb(context),
+                station_id, payload.action, master_id, revision_id,
+                context.get("productCode"), context.get("revisionCode"), Jsonb(context),
                 payload.timestamp or datetime.now(timezone.utc),
             ),
         ).fetchone()
@@ -764,7 +802,19 @@ def save_configuration(
     master = configuration.get("master") or {}
     revision = configuration.get("revision") or {}
     station_id = str(configuration.get("stationId") or "VISION-AI-AWS")
+    master_id = master.get("id")
+    revision_id = revision.get("id")
+    if not master_id or not revision_id:
+        raise HTTPException(status_code=422, detail="Station configuration must reference exact Master and revision IDs")
     with db.connection() as connection:
+        assignment = connection.execute(
+            "select 1 from public.vision_station_master_assignments where station_id=%s and master_id=%s and revision_id=%s",
+            (station_id, master_id, revision_id),
+        ).fetchone()
+        if not assignment:
+            raise HTTPException(status_code=409, detail="Configuration rejected: selected Master revision is not assigned to this station")
+        master_snapshot = {key: master.get(key) for key in ("id", "productCode", "productName")}
+        revision_snapshot = {key: revision.get(key) for key in ("id", "revisionCode", "checksum")}
         connection.execute(
             """
             insert into public.vision_configurations
@@ -780,7 +830,7 @@ def save_configuration(
             """,
             (
                 station_id, int(configuration.get("setupStep") or 0),
-                Jsonb(camera), Jsonb(master), Jsonb(revision),
+                Jsonb(camera), Jsonb(master_snapshot), Jsonb(revision_snapshot),
                 configuration.get("savedAt") or datetime.now(timezone.utc),
             ),
         )
