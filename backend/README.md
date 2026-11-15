@@ -7,12 +7,12 @@ This service replaces the AWS Lambda/API Gateway persistence adapter. It does **
 - Python 3.12
 - FastAPI + Uvicorn
 - OpenCV 5 preprocessing diagnostics
-- Supabase PostgreSQL via a private connection string
+- Supabase PostgreSQL via a dedicated database role
 - Supabase Auth user verification on protected endpoints
 
 ## Required environment variables
 
-- `DATABASE_URL`: Supabase PostgreSQL connection string. Prefer the Supabase pooler connection details suitable for a long-running Render service. Keep this secret.
+- `DATABASE_URL`: Supabase PostgreSQL connection string for the dedicated `vision_backend` role. Prefer the Supabase pooler connection details suitable for a long-running Render service. Keep this secret.
 - `SUPABASE_URL`: `https://<project-ref>.supabase.co`.
 - `SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key; it is not a service-role key.
 - `VISION_ALLOWED_USER_EMAILS`: comma-separated list of operator/admin emails permitted to use the API. The service fails closed if this is empty.
@@ -22,6 +22,16 @@ This service replaces the AWS Lambda/API Gateway persistence adapter. It does **
 - `PORT`: supplied by the hosting platform; defaults to 10000.
 
 Never put a database password, Supabase secret key, or service-role key in Vite `VITE_*` variables or browser code.
+
+## One-time database role activation
+
+The migrations create `vision_backend` as a restricted `NOLOGIN` role. Before deploying the service, the project owner must set a strong password for this role in the Supabase SQL Editor:
+
+```sql
+alter role vision_backend with login password 'REPLACE_WITH_A_LONG_RANDOM_PASSWORD';
+```
+
+Use that role name and password in the PostgreSQL connection string. Do not use the `postgres` superuser connection for the running application. The role is not a superuser and does not have `BYPASSRLS`; its RLS access is limited to the four Vision-AI tables through dedicated policies.
 
 ## Local run
 
