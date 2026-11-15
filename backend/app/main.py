@@ -360,6 +360,13 @@ def _validate_master_revision(payload: dict[str, Any], master_id: str | None = N
         errors.append("At least one inspection ROI is required")
         rois = []
     roi_ids: set[str] = set()
+    expected_count = payload.get("expectedObjectCount")
+    calculated_expected_count = sum(
+        1 for item in rois
+        if isinstance(item, dict) and item.get("expectedObjectPresence") is not False
+    )
+    if not isinstance(expected_count, int) or isinstance(expected_count, bool) or expected_count != calculated_expected_count:
+        errors.append("Expected object count must match the number of presence-required ROIs")
     for roi in rois:
         if not isinstance(roi, dict):
             errors.append("Every ROI must be an object")
