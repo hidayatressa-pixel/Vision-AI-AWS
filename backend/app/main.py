@@ -188,6 +188,7 @@ class VisionEvent(FlexibleModel):
     stationId: str = "VISION-AI-AWS"
     masterId: str | None = None
     masterRevisionId: str | None = None
+    masterRevisionChecksum: str | None = None
     inspectionId: str | None = None
     timestamp: datetime
     productCode: str | None = None
@@ -217,6 +218,7 @@ class InspectionHistoryRecord(FlexibleModel):
     master_id: str
     master_revision_id: str
     master_revision_code: str
+    master_revision_checksum: str
     judgement: str
     expected_count: int
     detected_count: int
@@ -825,17 +827,17 @@ def create_event(
     station_id = payload.stationId or payload.jig
     with db.connection() as connection:
         if payload.status != "STANDBY":
-            if not payload.masterId or not payload.masterRevisionId:
-                raise HTTPException(status_code=422, detail="Inspection event must include exact Master and revision IDs")
+            if not payload.masterId or not payload.masterRevisionId or not payload.masterRevisionChecksum:
+                raise HTTPException(status_code=422, detail="Inspection event must include exact Master, revision IDs, and checksum")
             assignment = connection.execute(
                 """
                 select 1 from public.vision_station_master_assignments a
                 join public.vision_masters m on m.id=a.master_id
                 join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
                 where a.station_id=%s and a.master_id=%s and a.revision_id=%s
-                  and m.product_code=%s and r.revision_code=%s and r.status='APPROVED'
+                  and m.product_code=%s and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
                 """,
-                (station_id, payload.masterId, payload.masterRevisionId, payload.productCode, payload.revisionCode),
+                (station_id, payload.masterId, payload.masterRevisionId, payload.productCode, payload.revisionCode, payload.masterRevisionChecksum),
             ).fetchone()
             if not assignment:
                 raise HTTPException(status_code=409, detail="Event rejected: station assignment does not match the reported Master revision")
@@ -843,14 +845,14 @@ def create_event(
             """
             insert into public.vision_events
               (status, confidence, mode, jig, station_id, master_id, master_revision_id,
-               inspection_id, event_timestamp, product_code, revision_code,
+               master_revision_checksum, inspection_id, event_timestamp, product_code, revision_code,
                detected_count, expected_count, reason)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
                 payload.status, payload.confidence, payload.mode, payload.jig,
-                station_id, payload.masterId, payload.masterRevisionId,
+                station_id, payload.masterId, payload.masterRevisionId, payload.masterRevisionChecksum,
                 payload.inspectionId, payload.timestamp, payload.productCode,
                 payload.revisionCode, payload.detectedCount, payload.expectedCount,
                 payload.reason,
@@ -872,31 +874,32 @@ def create_session(
     station_id = str(context.get("stationId") or "VISION-AI-AWS")
     master_id = context.get("masterId")
     revision_id = context.get("masterRevisionId")
+    revision_checksum = context.get("masterRevisionChecksum")
     with db.connection() as connection:
         if payload.action == "START_SESSION":
-            if not master_id or not revision_id:
-                raise HTTPException(status_code=422, detail="Session must include exact Master and revision IDs")
+            if not master_id or not revision_id or not revision_checksum:
+                raise HTTPException(status_code=422, detail="Session must include exact Master/revision IDs and checksum")
             assignment = connection.execute(
                 """
                 select 1 from public.vision_station_master_assignments a
                 join public.vision_masters m on m.id=a.master_id
                 join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
                 where a.station_id=%s and a.master_id=%s and a.revision_id=%s
-                  and m.product_code=%s and r.revision_code=%s and r.status='APPROVED'
+                  and m.product_code=%s and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
                 """,
-                (station_id, master_id, revision_id, context.get("productCode"), context.get("revisionCode")),
+                (station_id, master_id, revision_id, context.get("productCode"), context.get("revisionCode"), revision_checksum),
             ).fetchone()
             if not assignment:
                 raise HTTPException(status_code=409, detail="Session rejected: approved Master revision is not assigned to this station")
         row = connection.execute(
             """
             insert into public.vision_sessions
-              (station_id, action, master_id, master_revision_id, product_code, revision_code, context, event_timestamp)
-            values (%s, %s, %s, %s, %s, %s, %s, %s)
+              (station_id, action, master_id, master_revision_id, master_revision_checksum, product_code, revision_code, context, event_timestamp)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
-                station_id, payload.action, master_id, revision_id,
+                station_id, payload.action, master_id, revision_id, revision_checksum,
                 context.get("productCode"), context.get("revisionCode"), Jsonb(context),
                 payload.timestamp or datetime.now(timezone.utc),
             ),
@@ -927,8 +930,11 @@ def save_configuration(
         raise HTTPException(status_code=422, detail="Station configuration must reference exact Master and revision IDs")
     with db.connection() as connection:
         assignment = connection.execute(
-            "select 1 from public.vision_station_master_assignments where station_id=%s and master_id=%s and revision_id=%s",
-            (station_id, master_id, revision_id),
+            """select 1 from public.vision_station_master_assignments a
+               join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
+               where a.station_id=%s and a.master_id=%s and a.revision_id=%s
+                 and r.checksum=%s and r.status='APPROVED'""",
+            (station_id, master_id, revision_id, revision.get("checksum")),
         ).fetchone()
         if not assignment:
             raise HTTPException(status_code=409, detail="Configuration rejected: selected Master revision is not assigned to this station")
@@ -982,10 +988,12 @@ def save_inspection_history(
     with db.connection() as connection:
         assignment = connection.execute(
             """
-            select 1 from public.vision_station_master_assignments
-            where station_id=%s and master_id=%s and revision_id=%s
+            select 1 from public.vision_station_master_assignments a
+            join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
+            where a.station_id=%s and a.master_id=%s and a.revision_id=%s
+              and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
             """,
-            (data.get("station_id") or "VISION-AI-AWS", data["master_id"], data["master_revision_id"]),
+            (data.get("station_id") or "VISION-AI-AWS", data["master_id"], data["master_revision_id"], data["master_revision_code"], data["master_revision_checksum"]),
         ).fetchone()
     if not assignment:
         raise HTTPException(status_code=409, detail="Inspection history rejected: Master revision is not the approved revision assigned to this station")
