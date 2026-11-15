@@ -361,6 +361,8 @@ function VisionApp() {
     void endVisionSession({
       productCode: activeMaster?.productCode || 'UNKNOWN',
       revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
+      masterId: activeMaster?.id || '',
+      masterRevisionId: activeRevision?.id || '',
     }).catch((error) => {
       console.error('[Vision backend session end]', error);
       setSystemMessage('LIVE INSPECTION ENDED — BACKEND END EVENT COULD NOT BE CONFIRMED');
