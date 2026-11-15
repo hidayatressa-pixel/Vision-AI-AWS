@@ -58,11 +58,18 @@ export function getEightPointSlotIds(rois: InspectionROI[]): Map<string, string>
   return new Map(ordered.map((roi, index) => [roi.id, `P${index + 1}`]));
 }
 
-/** NG examples are optional in presence-only mode; every positive OK example must be uploaded. */
+/**
+ * Presence-only inspection still needs both sides of the decision:
+ * an OK image with the screw present and an NG image showing the validated
+ * empty slot. Without the negative reference, an unrecognized background
+ * could be mistaken for a confirmed missing screw.
+ */
 export function validateEightPointReferenceImages(references: ReferenceImage[]): boolean {
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+  const ngReferences = references.filter((reference) => reference.kind === 'NG');
   return okReferences.length >= 1 &&
-    okReferences.every((reference) => Boolean(reference.imageUrl?.trim()));
+    ngReferences.length >= 1 &&
+    references.every((reference) => Boolean(reference.imageUrl?.trim()));
 }
 
 export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
@@ -142,7 +149,7 @@ export function evaluateEightPointPresence(
     const result = resultById.get(roi.id);
     let status: EightPointResult['points'][number]['status'] = 'UNCERTAIN';
 
-    if (!result || result.evidence === 'UNCERTAIN') {
+    if (!result || result.evidence === 'UNCERTAIN' || result.status === 'WARNING') {
       uncertainCount++;
       defects.push({
         code: 'LOW_CONFIDENCE',
