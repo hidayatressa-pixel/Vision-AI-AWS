@@ -280,18 +280,11 @@ class DatabaseService {
 
   private revisionComparableValue(revision: MasterRevision): string {
     const isLocalImage = (url?: string) => Boolean(url && (url.startsWith('data:image/') || url.startsWith('blob:')));
-    const {
-      status: _status,
-      checksum: _checksum,
-      submittedAt: _submittedAt,
-      submittedBy: _submittedBy,
-      approvedAt: _approvedAt,
-      approvedBy: _approvedBy,
-      createdAt: _createdAt,
-      updatedAt: _updatedAt,
-      createdBy: _createdBy,
-      ...content
-    } = revision;
+    const content: Record<string, unknown> = { ...revision };
+    [
+      'status', 'checksum', 'submittedAt', 'submittedBy',
+      'approvedAt', 'approvedBy', 'createdAt', 'updatedAt', 'createdBy',
+    ].forEach((key) => { delete content[key]; });
     return JSON.stringify({
       ...content,
       masterImageUrl: isLocalImage(revision.masterImageUrl) ? revision.masterImageUrl : '',
