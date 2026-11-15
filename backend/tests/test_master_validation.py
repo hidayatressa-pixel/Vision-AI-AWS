@@ -197,6 +197,13 @@ class MasterRevisionValidationTests(unittest.TestCase):
         errors = _validate_master_revision(payload)
         self.assertTrue(any("requires at least three" in error for error in errors))
 
+    def test_explicit_eight_point_profile_rejects_non_screw_rois_without_crashing(self):
+        payload = valid_eight_point_revision()
+        for roi in payload["inspectionROIs"]:
+            roi["objectType"] = "connector"
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("requires exactly eight required screw ROIs" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
