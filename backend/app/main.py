@@ -1137,6 +1137,7 @@ def save_inspection_history(
 ):
     data = payload.model_dump()
     station_id = data.get("station_id") or DEFAULT_STATION_ID
+    data["station_id"] = station_id
     require_station_access(user, station_id, db)
     with db.connection() as connection:
         assignment = connection.execute(
@@ -1146,7 +1147,7 @@ def save_inspection_history(
             where a.station_id=%s and a.master_id=%s and a.revision_id=%s
               and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
             """,
-            (data.get("station_id") or "VISION-AI-AWS", data["master_id"], data["master_revision_id"], data["master_revision_code"], data["master_revision_checksum"]),
+            (station_id, data["master_id"], data["master_revision_id"], data["master_revision_code"], data["master_revision_checksum"]),
         ).fetchone()
     if not assignment:
         raise HTTPException(status_code=409, detail="Inspection history rejected: Master revision is not the approved revision assigned to this station")
