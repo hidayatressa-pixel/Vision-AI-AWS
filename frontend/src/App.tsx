@@ -1,29 +1,14 @@
 import { useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, LockKeyhole, ScanLine, ServerCog, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 
-type Screen = 'welcome' | 'pin' | 'setup';
+type Screen = 'welcome' | 'setup';
 
 const DEFAULT_API_URL = import.meta.env.VITE_ANALYZER_API_URL ?? '';
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('welcome');
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('vision-ai-analyzer-url') ?? DEFAULT_API_URL);
   const [saved, setSaved] = useState(false);
-
-  function unlock(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const expectedPin = import.meta.env.VITE_ENGINEERING_PIN ?? '8888';
-    if (pin === expectedPin) {
-      setPin('');
-      setPinError('');
-      setScreen('setup');
-      return;
-    }
-    setPin('');
-    setPinError('Incorrect PIN. Please try again.');
-  }
 
   function saveSetup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,29 +45,13 @@ export default function App() {
             <div className="rule" />
             <div className="notice">
               <ShieldCheck size={21} />
-              <div><strong>First-time setup</strong><p>Complete the initial setup and verify engineering access to continue.</p></div>
+              <div><strong>First-time setup</strong><p>Set the public demonstration's analyzer endpoint. Do not enter confidential data.</p></div>
             </div>
-            <button className="primary-button" onClick={() => setScreen('pin')}>
-              <span className="button-label"><Sparkles size={17} /> First Setup &amp; Security PIN</span>
+            <button className="primary-button" onClick={() => setScreen('setup')}>
+              <span className="button-label"><Sparkles size={17} /> Open Setup</span>
               <span className="button-arrow"><ArrowRight size={19} /></span>
             </button>
-            <p className="security-note">ENGINEERING ACCESS · AUTHORIZED PERSONNEL ONLY</p>
-          </section>
-        )}
-
-        {screen === 'pin' && (
-          <section className="panel form-panel">
-            <button className="back-link" onClick={() => { setScreen('welcome'); setPinError(''); }}><ArrowLeft size={15} /> Back to welcome</button>
-            <div className="form-icon amber"><LockKeyhole size={28} /></div>
-            <div className="eyebrow amber-text">AUTHORIZED PERSONNEL</div>
-            <h2>Engineering Access</h2>
-            <p className="muted">Enter your security PIN to continue to initial setup.</p>
-            <form onSubmit={unlock}>
-              <label className="sr-only" htmlFor="engineering-pin">Engineering PIN</label>
-              <input id="engineering-pin" autoFocus type="password" inputMode="numeric" autoComplete="current-password" maxLength={4} pattern="[0-9]{4}" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Enter 4-digit PIN" aria-describedby={pinError ? 'pin-error' : undefined} required />
-              {pinError && <p className="error-message" id="pin-error" role="alert">{pinError}</p>}
-              <button className="primary-button amber-button" type="submit"><span className="button-label">Unlock <ArrowRight size={17} /></span></button>
-            </form>
+            <p className="security-note">PUBLIC DEMONSTRATION · NON-CONFIDENTIAL DATA ONLY</p>
           </section>
         )}
 
