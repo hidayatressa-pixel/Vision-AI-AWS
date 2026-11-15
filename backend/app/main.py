@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -303,8 +304,42 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
     if not payload.get("masterImagePath"):
         errors.append("Master image must be stored in the private vision-assets bucket")
     width, height = payload.get("masterWidth"), payload.get("masterHeight")
-    if not isinstance(width, (int, float)) or not isinstance(height, (int, float)) or width <= 0 or height <= 0:
+    if not isinstance(width, (int, float)) or not isinstance(height, (int, float)) or not math.isfinite(width) or not math.isfinite(height) or width <= 0 or height <= 0:
         errors.append("Master image dimensions must be positive")
+
+    detection_zone = payload.get("detectionZone")
+    if not isinstance(detection_zone, dict):
+        errors.append("Detection zone is required")
+    else:
+        try:
+            dx, dy = float(detection_zone["x"]), float(detection_zone["y"])
+            dw, dh = float(detection_zone["width"]), float(detection_zone["height"])
+            if not all(math.isfinite(v) for v in (dx, dy, dw, dh)) or dx < 0 or dy < 0 or dw <= 0 or dh <= 0 or dx + dw > 1 or dy + dh > 1:
+                errors.append("Detection zone must be a valid normalized rectangle")
+        except (KeyError, TypeError, ValueError):
+            errors.append("Detection zone geometry is invalid")
+
+    tolerance = payload.get("tolerance")
+    if not isinstance(tolerance, dict):
+        errors.append("Master tolerance configuration is required")
+    else:
+        bounded = ("minAlignmentConfidence", "minScrewConfidence", "stabilizationMotionThreshold",
+                   "partRemovalThreshold", "detectionZonePresenceThreshold")
+        for key in bounded:
+            value = tolerance.get(key)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or value > 1:
+                errors.append(f"Tolerance {key} must be between 0 and 1")
+        positive = ("maxPositionOffsetMm", "maxPositionOffsetPx", "maxRotationToleranceDeg")
+        for key in positive:
+            value = tolerance.get(key)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                errors.append(f"Tolerance {key} must be positive")
+        delay = tolerance.get("stabilizationDelayMs")
+        if not isinstance(delay, (int, float)) or not math.isfinite(delay) or delay < 0:
+            errors.append("Stabilization delay must be zero or greater")
+
+    if payload.get("roiBoundaryPolicy", "WARNING") not in ("STRICT", "WARNING", "DISABLED"):
+        errors.append("ROI boundary policy is invalid")
 
     rois = payload.get("inspectionROIs")
     if not isinstance(rois, list) or not rois:
@@ -323,8 +358,20 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
             x, y = float(roi["x"]), float(roi["y"])
             w = float(roi.get("width") or float(roi["radius"]) * 2)
             h = float(roi.get("height") or float(roi["radius"]) * 2)
-            if x - w / 2 < 0 or y - h / 2 < 0 or x + w / 2 > 1 or y + h / 2 > 1:
+            if not all(math.isfinite(v) for v in (x, y, w, h)) or x - w / 2 < 0 or y - h / 2 < 0 or x + w / 2 > 1 or y + h / 2 > 1:
                 errors.append(f"ROI {roi_id or '?'} is outside normalized image bounds")
+            confidence = roi.get("minConfidence", 0.75)
+            color_threshold = roi.get("minColorSimilarity", 0.55)
+            color_weight = roi.get("colorWeight", 0.15)
+            class_margin = roi.get("minClassMargin", 0.06)
+            if not isinstance(confidence, (int, float)) or not 0.5 <= confidence <= 0.98:
+                errors.append(f"ROI {roi_id or '?'} similarity threshold must be between 0.5 and 0.98")
+            if not isinstance(color_threshold, (int, float)) or not 0.4 <= color_threshold <= 0.98:
+                errors.append(f"ROI {roi_id or '?'} color threshold must be between 0.4 and 0.98")
+            if not isinstance(color_weight, (int, float)) or not 0.05 <= color_weight <= 0.4:
+                errors.append(f"ROI {roi_id or '?'} color weight must be between 0.05 and 0.4")
+            if not isinstance(class_margin, (int, float)) or not 0.02 <= class_margin <= 0.3:
+                errors.append(f"ROI {roi_id or '?'} class margin must be between 0.02 and 0.3")
         except (KeyError, TypeError, ValueError):
             errors.append(f"ROI {roi_id or '?'} has invalid geometry")
 
@@ -354,11 +401,43 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
     references = payload.get("referenceImages")
     if not isinstance(references, list):
         references = []
-    valid_refs = [ref for ref in references if isinstance(ref, dict) and ref.get("storagePath")]
+    valid_refs = []
+    seen_paths: set[str] = set()
+    for ref in references:
+        if not isinstance(ref, dict):
+            continue
+        path = str(ref.get("storagePath") or "")
+        if not path or path.startswith("/") or ".." in path.split("/") or path in seen_paths:
+            errors.append(f"Reference image {ref.get('id') or '?'} has a missing, duplicate, or unsafe Storage path")
+            continue
+        seen_paths.add(path)
+        if (ref.get("kind") or "OK") not in ("OK", "NG"):
+            errors.append(f"Reference image {ref.get('id') or '?'} has an unsupported class")
+            continue
+        valid_refs.append(ref)
     if not any((ref.get("kind") or "OK") == "OK" for ref in valid_refs):
         errors.append("At least one uploaded positive OK reference is required")
     if not any(ref.get("kind") == "NG" for ref in valid_refs):
         errors.append("At least one uploaded negative NG reference is required")
+
+    screw_rois = [roi for roi in rois if isinstance(roi, dict) and roi.get("objectType") == "screw" and roi.get("expectedObjectPresence") is not False]
+    if len(screw_rois) == 8:
+        ordered_y = sorted(float(roi["y"]) for roi in screw_rois if isinstance(roi.get("y"), (int, float)))
+        rows: list[list[float]] = []
+        for center_y in ordered_y:
+            if not rows or abs(center_y - sum(rows[-1]) / len(rows[-1])) > 0.08:
+                rows.append([center_y])
+            else:
+                rows[-1].append(center_y)
+        if [len(row) for row in rows] != [4, 2, 2]:
+            errors.append("Eight-point screw Master must preserve the 4-2-2 row layout")
+        for index, first in enumerate(screw_rois):
+            for second in screw_rois[index + 1:]:
+                fw, fh = float(first.get("width") or float(first["radius"]) * 2), float(first.get("height") or float(first["radius"]) * 2)
+                sw, sh = float(second.get("width") or float(second["radius"]) * 2), float(second.get("height") or float(second["radius"]) * 2)
+                if abs(float(first["x"]) - float(second["x"])) * 2 < fw + sw and abs(float(first["y"]) - float(second["y"])) * 2 < fh + sh:
+                    errors.append("Eight-point screw ROIs must not overlap")
+                    break
 
     for roi_id in roi_ids:
         for kind in ("OK", "NG"):
