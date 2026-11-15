@@ -89,6 +89,120 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
   return promise;
 }
 
+type ColorSignature = { red: number; green: number; blue: number; saturation: number };
+const referenceColorCache = new Map<string, Promise<ColorSignature | null>>();
+
+function colorSignatureFromPixels(
+  pixels: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+  stride: number,
+  offset = 0
+): ColorSignature | null {
+  let red = 0, green = 0, blue = 0, count = 0;
+  // The central region emphasizes the inspected component and reduces the
+  // influence of the surrounding fixture/background.
+  const left = Math.floor(width * 0.3), right = Math.ceil(width * 0.7);
+  const top = Math.floor(height * 0.3), bottom = Math.ceil(height * 0.7);
+  for (let y = top; y < bottom; y++) {
+    for (let x = left; x < right; x++) {
+      const index = offset + (y * width + x) * stride;
+      red += pixels[index];
+      green += pixels[index + 1];
+      blue += pixels[index + 2];
+      count++;
+    }
+  }
+  if (!count) return null;
+  red /= count; green /= count; blue /= count;
+  const total = red + green + blue;
+  if (!Number.isFinite(total) || total < 12) return null;
+  const maximum = Math.max(red, green, blue);
+  const minimum = Math.min(red, green, blue);
+  return {
+    red: red / total,
+    green: green / total,
+    blue: blue / total,
+    saturation: maximum > 0 ? (maximum - minimum) / maximum : 0,
+  };
+}
+
+function imageToColorSignature(image: HTMLImageElement, layout: ReferenceRoiLayout): ColorSignature | null {
+  try {
+    if (!image.naturalWidth || !image.naturalHeight) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    const left = layout.x * image.naturalWidth;
+    const top = layout.y * image.naturalHeight;
+    const width = layout.width * image.naturalWidth;
+    const height = layout.height * image.naturalHeight;
+    if (left < 0 || top < 0 || width < 2 || height < 2 ||
+        left + width > image.naturalWidth || top + height > image.naturalHeight) return null;
+    context.drawImage(image, left, top, width, height, 0, 0, 32, 32);
+    return colorSignatureFromPixels(context.getImageData(0, 0, 32, 32).data, 32, 32, 4);
+  } catch {
+    return null;
+  }
+}
+
+function loadReferenceColorSignature(reference: ReferenceImage, roi: InspectionROI): Promise<ColorSignature | null> {
+  const layout = reference.roiLayouts?.[roi.id] || fallbackLayout(roi);
+  const cacheKey = [reference.id, reference.imageUrl, roi.id, layout.x, layout.y, layout.width, layout.height].join(':');
+  const cached = referenceColorCache.get(cacheKey);
+  if (cached) return cached;
+  const promise = new Promise<ColorSignature | null>((resolve) => {
+    if (!reference.imageUrl) return resolve(null);
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => resolve(imageToColorSignature(image, layout));
+    image.onerror = () => resolve(null);
+    image.src = reference.imageUrl;
+  });
+  if (referenceColorCache.size >= 256) {
+    const oldestKey = referenceColorCache.keys().next().value;
+    if (oldestKey) referenceColorCache.delete(oldestKey);
+  }
+  referenceColorCache.set(cacheKey, promise);
+  return promise;
+}
+
+function currentColorSignature(frame: ImageData, geometry: RoiFrameGeometry): ColorSignature | null {
+  const size = 32;
+  const pixels = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    const localY = ((y + 0.5) / size - 0.5) * geometry.height;
+    for (let x = 0; x < size; x++) {
+      const localX = ((x + 0.5) / size - 0.5) * geometry.width;
+      const sourceX = Math.round(geometry.centerX + geometry.cos * localX - geometry.sin * localY);
+      const sourceY = Math.round(geometry.centerY + geometry.sin * localX + geometry.cos * localY);
+      if (sourceX < 0 || sourceY < 0 || sourceX >= frame.width || sourceY >= frame.height) return null;
+      const sourceIndex = (sourceY * frame.width + sourceX) * 4;
+      const targetIndex = (y * size + x) * 4;
+      pixels[targetIndex] = frame.data[sourceIndex];
+      pixels[targetIndex + 1] = frame.data[sourceIndex + 1];
+      pixels[targetIndex + 2] = frame.data[sourceIndex + 2];
+      pixels[targetIndex + 3] = 255;
+    }
+  }
+  return colorSignatureFromPixels(pixels, size, size, 4);
+}
+
+function compareColorSignatures(reference: ColorSignature, current: ColorSignature): number {
+  // Neutral metallic/greyscale objects carry little reliable hue information.
+  // Do not invent a color mismatch when both samples are effectively neutral.
+  if (reference.saturation < 0.08 && current.saturation < 0.08) return 1;
+  const chromaDistance = Math.sqrt(
+    (reference.red - current.red) ** 2 +
+    (reference.green - current.green) ** 2 +
+    (reference.blue - current.blue) ** 2
+  );
+  const saturationDistance = Math.abs(reference.saturation - current.saturation);
+  return Math.max(0, Math.min(1, Math.exp(-chromaDistance * 5 - saturationDistance * 1.5)));
+}
+
 interface RoiFrameGeometry {
   centerX: number;
   centerY: number;
@@ -172,8 +286,9 @@ function currentRoiPatch(frame: GrayscaleImage, geometry: RoiFrameGeometry): Flo
 function comparePatches(
   reference: Float32Array,
   current: Float32Array,
-  roi: InspectionROI
-): { score: number; shapeScore: number; referenceShape: RoiShapeDescriptor; currentShape: RoiShapeDescriptor } {
+  roi: InspectionROI,
+  colorScore = 1
+): { score: number; shapeScore: number; colorScore: number; referenceShape: RoiShapeDescriptor; currentShape: RoiShapeDescriptor } {
   const referenceShape = describePatch(reference, PATCH_SIZE, roi.expectedPolarity || 'contrast');
   const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
   const refStructure = normalizePatch(reference);
@@ -195,9 +310,10 @@ function comparePatches(
       : structureDifference * 0.75 + brightnessDifference * 0.25;
   const pixelSimilarity = Math.max(0, Math.min(1, 1 - pixelDifference));
   const shapeScore = compareDescriptors(referenceShape, currentShape);
-  // Spatial shape features receive greater weight than raw pixel brightness.
-  const score = Math.max(0, Math.min(1, pixelSimilarity * 0.35 + shapeScore * 0.65));
-  return { score, shapeScore, referenceShape, currentShape };
+  // Shape remains dominant; color is an independent recognition signal.
+  // A color mismatch lowers similarity but cannot by itself prove absence.
+  const score = Math.max(0, Math.min(1, pixelSimilarity * 0.30 + shapeScore * 0.55 + colorScore * 0.15));
+  return { score, shapeScore, colorScore, referenceShape, currentShape };
 }
 
 function uncertainResult(
@@ -253,9 +369,8 @@ export class ROIInspector {
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
     const eightPointPresenceMode = isEightPointPresenceCandidate(rois);
-    // Keep the existing signature for callers that still supply the RGB frame;
-    // ROI feature extraction uses the already-normalized grayscale frame.
-    void colorFrame;
+    // Live recognition requires both grayscale structure and readable RGB
+    // evidence. Without RGB, the system cannot claim that Master color checks ran.
 
     for (const roi of rois) {
       const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
@@ -271,6 +386,14 @@ export class ROIInspector {
         continue;
       }
       const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
+      const liveColor = colorFrame ? currentColorSignature(colorFrame, geometry) : null;
+      if (!liveColor) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: live RGB color evidence is unavailable; Master recognition cannot be completed`,
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
       const expectedPresence = roi.expectedObjectPresence !== false;
       const presenceThreshold = currentShape.present && roi.objectType === 'screw'
         ? Math.max(0.5, Math.min(0.98, tolerance.minScrewConfidence))
@@ -289,10 +412,14 @@ export class ROIInspector {
       // product judgement. A broken Master OK crop must produce WARNING/INVALID,
       // not a false product NG or an accidental OK.
       const comparisons = await Promise.all(usableReferences.map(async (reference) => {
-        const patch = await loadReference(reference, roi);
-        if (!patch) return null;
-        const compared = comparePatches(patch, current, roi);
-        return { reference, ...compared };
+        const [patch, referenceColor] = await Promise.all([
+          loadReference(reference, roi),
+          loadReferenceColorSignature(reference, roi),
+        ]);
+        if (!patch || !referenceColor) return null;
+        const colorScore = compareColorSignatures(referenceColor, liveColor);
+        const compared = comparePatches(patch, current, roi, colorScore);
+        return { reference, colorScore, ...compared };
       }));
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
