@@ -13,8 +13,8 @@ Deploy this service from the repository branch `migration/supabase-fastapi-backe
 | `DATABASE_URL` | PostgreSQL connection string using the dedicated `vision_backend` role, not the postgres superuser |
 | `SUPABASE_URL` | `https://xobhecaqgihobropcers.supabase.co` |
 | `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
-| `VISION_ALLOWED_USER_EMAILS` | `hidayatressa@gmail.com` (comma-separated exact operator emails) |
-| `VISION_ADMIN_EMAILS` | `hidayatressa@gmail.com` (comma-separated admin emails) |
+| `VISION_ALLOWED_USER_EMAILS` | Comma-separated exact operator emails |
+| `VISION_ADMIN_EMAILS` | Comma-separated admin emails |
 | `CORS_ORIGINS` | `https://hidayatressa-pixel.github.io,http://localhost:5173,http://localhost:3000` |
 | `MAX_IMAGE_BYTES` | Optional; default 8388608 |
 
@@ -32,9 +32,9 @@ Use the connection details for `vision_backend` in Render's `DATABASE_URL`. If u
 
 ## Supabase Auth users
 
-Initial administrator/operator email: `hidayatressa@gmail.com`.
+Initial administrator/operator email is provided privately by the project owner and must not be committed to source control.
 
-Create this account in Supabase Dashboard → Authentication → Users → Add user → Send invite. The user completes the email invitation and sets their own password. This app intentionally has no public sign-up flow. The backend allowlists this email in both `VISION_ALLOWED_USER_EMAILS` and `VISION_ADMIN_EMAILS`; add additional exact emails only after provisioning them in Supabase Auth.
+Create this account in Supabase Dashboard → Authentication → Users → Add user → Send invite. The user completes the email invitation and sets their own password. This app intentionally has no public sign-up flow. Set the initial administrator email privately in both `VISION_ALLOWED_USER_EMAILS` and `VISION_ADMIN_EMAILS` in the hosting environment; add additional exact emails only after provisioning them in Supabase Auth.
 
 ## Frontend build variables
 
