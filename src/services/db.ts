@@ -54,6 +54,9 @@ class DatabaseService {
   private async uploadMasterImage(masterId: string, revisionId: string, fileName: string, imageUrl: string, existingPath?: string): Promise<string> {
     if (!supabase) throw new Error('Supabase Storage is not configured.');
     const revisionPrefix = this.safePathSegment(masterId) + '/' + this.safePathSegment(revisionId) + '/';
+    // New draft shells may be created before an image is selected; submission
+    // validation will block them until all required Master assets are present.
+    if (!imageUrl && !existingPath) return '';
     // Reuse an object only when it already belongs to this exact revision.
     // Cloned revisions must receive independent immutable asset paths.
     if (existingPath && existingPath.startsWith(revisionPrefix)) return existingPath;
