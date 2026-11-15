@@ -247,7 +247,7 @@ class VisionEvent(FlexibleModel):
     confidence: float = Field(ge=0, le=1)
     mode: str = "CONTINUOUS"
     jig: str
-    stationId: str = "VISION-AI-AWS"
+    stationId: str = DEFAULT_STATION_ID
     masterId: str | None = None
     masterRevisionId: str | None = None
     masterRevisionChecksum: str | None = None
