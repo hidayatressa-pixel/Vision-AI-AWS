@@ -70,6 +70,8 @@ If an asset cannot be uploaded (unsupported type, inaccessible blob URL, or over
 
 ## Recognition and judgment rules
 
+Each revision also stores an explicit inspection profile: `STANDARD` or `EIGHT_POINT_PRESENCE`. An explicit eight-point profile cannot silently fall back to standard ROI inspection if an ROI is removed or changed; submission and live readiness fail until all eight screw ROIs and alignment anchors are restored.
+
 For every ROI, the Master stores:
 - positive OK reference(s) and negative NG reference(s), each with a crop layout for every ROI;
 - ROI geometry, expected presence, shape/texture settings, RGB color similarity threshold, and RGB weight.
