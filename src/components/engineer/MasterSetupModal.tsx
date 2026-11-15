@@ -853,6 +853,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         height: 0.10,
                         toleranceRadius: 0.05,
                         minConfidence: 0.75,
+                        minColorSimilarity: 0.55,
+                        colorWeight: 0.15,
                         isRequired: true,
                         expectedPolarity: 'contrast',
                         comparisonMode: 'STRUCTURE_FIRST',
@@ -889,7 +891,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
-                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
+                        minConfidence: 0.75, minColorSimilarity: 0.55, colorWeight: 0.15, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
                         expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35, shapeToleranceRatio: 0.10,
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
@@ -1104,6 +1106,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     <p className="text-[10px] text-slate-500 font-mono mt-1">
                       A higher threshold requires stronger similarity to the OK class than to the NG class.
                     </p>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-mono mb-1">
+                      <span className="text-slate-300">Master Color Similarity Threshold:</span>
+                      <span className="text-cyan-400 font-bold">{selectedRoi ? Math.round((selectedRoi.minColorSimilarity ?? 0.55) * 100) + '%' : 'Select ROI'}</span>
+                    </div>
+                    <input type="range" min="0.4" max="0.98" step="0.02" disabled={!selectedRoi}
+                      value={selectedRoi?.minColorSimilarity ?? 0.55}
+                      onChange={(event) => {
+                        if (!selectedRoi) return;
+                        const minColorSimilarity = Number(event.target.value);
+                        setEditedRevision((prev) => ({
+                          ...prev,
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, minColorSimilarity } : roi
+                          ),
+                        }));
+                      }} className="w-full accent-cyan-500" />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Rejects a screw-like object whose RGB color signature does not sufficiently match its Master reference. Neutral metallic references are treated as color-neutral.</p>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-mono mb-1">
+                      <span className="text-slate-300">RGB Color Weight:</span>
+                      <span className="text-cyan-400 font-bold">{selectedRoi ? Math.round((selectedRoi.colorWeight ?? 0.15) * 100) + '%' : 'Select ROI'}</span>
+                    </div>
+                    <input type="range" min="0.05" max="0.4" step="0.01" disabled={!selectedRoi}
+                      value={selectedRoi?.colorWeight ?? 0.15}
+                      onChange={(event) => {
+                        if (!selectedRoi) return;
+                        const colorWeight = Number(event.target.value);
+                        setEditedRevision((prev) => ({
+                          ...prev,
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, colorWeight } : roi
+                          ),
+                        }));
+                      }} className="w-full accent-cyan-500" />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Sets the RGB color contribution to the combined shape, texture, and color recognition score.</p>
                   </div>
 
                   <div>
