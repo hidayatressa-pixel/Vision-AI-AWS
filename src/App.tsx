@@ -286,6 +286,14 @@ function VisionApp() {
 
   const handleStartSession = async () => {
     if (sessionActive || sessionStarting || !setupValidated || !cameraReady || !masterReady) return;
+    let backendSessionStarted = false;
+    let rollbackContext: {
+      productCode: string;
+      revisionCode: string;
+      masterId: string;
+      masterRevisionId: string;
+      masterRevisionChecksum: string;
+    } | null = null;
     setSessionStarting(true);
     setSystemMessage('VERIFYING APPROVED MASTER ASSIGNMENT...');
     setSystemMessageLevel('info');
@@ -319,27 +327,38 @@ function VisionApp() {
       setSystemMessage('INITIALIZING INSPECTION SESSION...');
       setSystemMessageLevel('info');
       const sessionContext = {
-        productCode: activeMaster?.productCode || 'UNKNOWN',
-        revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
-        masterId: activeMaster?.id || '',
-        masterRevisionId: activeRevision?.id || '',
-        masterRevisionChecksum: activeRevision?.checksum || '',
+        productCode: assignedMaster.productCode,
+        revisionCode: assignedRevision.revisionCode,
+        masterId: assignedMaster.id,
+        masterRevisionId: assignedRevision.id,
+        masterRevisionChecksum: assignedRevision.checksum || '',
       };
+      rollbackContext = sessionContext;
       // The backend must confirm the exact approved station assignment before
       // the local pipeline is allowed to enter Live Inspection.
       await activateVisionSession(sessionContext);
+      backendSessionStarted = true;
       const started = await pipeline.startSession();
       if (!started) {
-        void endVisionSession(sessionContext).catch((error) => console.error('[Vision backend session rollback]', error));
+        await endVisionSession(sessionContext);
+        backendSessionStarted = false;
         setSystemMessage('SESSION START FAILED — CAMERA FRAME OR BASELINE IS NOT READY');
         setSystemMessageLevel('error');
         return;
       }
-      setSessionActive(true);
       localStorage.setItem('vision-ai-session-active', '1');
+      setSessionActive(true);
+      backendSessionStarted = false;
       setSystemMessage('APPROVED MASTER CONFIRMED — LIVE INSPECTION SESSION STARTED');
       setSystemMessageLevel('success');
     } catch (error) {
+      if (backendSessionStarted && rollbackContext) {
+        try {
+          await endVisionSession(rollbackContext);
+        } catch (rollbackError) {
+          console.error('[Vision backend session rollback]', rollbackError);
+        }
+      }
       console.error('[Inspection session start]', error);
       setSystemMessage('SESSION START FAILED — PLEASE CHECK CAMERA AND TRY AGAIN');
       setSystemMessageLevel('error');
