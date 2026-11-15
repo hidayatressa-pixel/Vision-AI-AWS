@@ -213,10 +213,10 @@ class DatabaseService {
   }
 
   public async getAllMasters(): Promise<MasterProduct[]> {
+    const role = await this.getCurrentUserRole();
     const query = '?station_id=' + encodeURIComponent(VISION_STATION_ID);
     let cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
     if (cloud.length === 0 && !this.migrationAttempted) {
-      const role = await this.getCurrentUserRole();
       if (role === 'ENGINEER' || role === 'ADMIN') {
         const legacy = await this.getLegacyLocalMasters();
         if (legacy.length) {
