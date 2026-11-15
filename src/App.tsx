@@ -36,8 +36,6 @@ export default function App() {
     return <PhoneCameraView />;
   }
   const [entryScreen, setEntryScreen] = useState<'welcome' | 'pin' | 'app'>('welcome');
-  const [entryPin, setEntryPin] = useState('');
-  const [entryPinError, setEntryPinError] = useState('');
   const [activeTab, setActiveTab] = useState<ActiveTab>('CAMERA_SETUP');
   const [role] = useState<UserRole>('OPERATOR');
   const [isMuted, setIsMuted] = useState(false);
@@ -360,24 +358,6 @@ export default function App() {
     }
   };
 
-  const handlePinUnlock = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const configuredPin = String(import.meta.env.VITE_ENGINEERING_PIN ?? '').trim();
-    if (!configuredPin) {
-      setEntryPinError('Engineering PIN belum dikonfigurasi. Set VITE_ENGINEERING_PIN pada environment build.');
-      setEntryPin('');
-      return;
-    }
-    if (entryPin !== configuredPin) {
-      setEntryPinError('PIN tidak sesuai. Silakan coba lagi.');
-      setEntryPin('');
-      return;
-    }
-    setEntryPin('');
-    setEntryPinError('');
-    setEntryScreen('app');
-  };
-
   const handleEntryLock = () => {
     if (sessionActive) return;
     sessionStorage.removeItem('vision-ai-engineering-unlocked');
@@ -422,21 +402,10 @@ export default function App() {
               <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300"><ShieldCheck size={42} strokeWidth={1.5} /></div>
               <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-slate-500">Inspection station</div>
               <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-white">Precision in every inspection.</h1>
-              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-slate-400">Quality in every part. Complete the protected setup and verify every prerequisite before starting an inspection session.</p>
-              <button onClick={() => setEntryScreen('pin')} className="w-full rounded-xl bg-cyan-400 px-5 py-4 text-sm font-black text-slate-950 transition hover:bg-cyan-300">BEGIN INITIAL SETUP <span aria-hidden="true">→</span></button>
-              <p className="mt-4 text-[10px] font-mono text-slate-600">ENGINEERING ACCESS REQUIRED</p>
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-slate-400">Quality in every part. Explore the public demonstration and verify every prerequisite before starting an inspection session.</p>
+              <button onClick={() => setEntryScreen('app')} className="w-full rounded-xl bg-cyan-400 px-5 py-4 text-sm font-black text-slate-950 transition hover:bg-cyan-300">OPEN PUBLIC DEMO <span aria-hidden="true">→</span></button>
+              <p className="mt-4 text-[10px] font-mono text-slate-600">PUBLIC DEMONSTRATION — DO NOT ENTER CONFIDENTIAL PRODUCTION DATA</p>
             </div>
-          ) : (
-            <form onSubmit={handlePinUnlock} className="mx-auto max-w-sm">
-              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-400/30 bg-amber-400/10 text-amber-300"><LockKeyhole size={32} /></div>
-              <h1 className="text-center text-2xl font-black">Engineering PIN</h1>
-              <p className="mt-2 text-center text-sm text-slate-400">Masukkan PIN sebelum membuka konfigurasi kamera dan master inspeksi.</p>
-              <label className="mt-7 block text-xs font-bold uppercase tracking-wider text-slate-400" htmlFor="engineering-pin">PIN</label>
-              <input id="engineering-pin" autoFocus inputMode="numeric" type="password" autoComplete="current-password" value={entryPin} onChange={(event) => { setEntryPin(event.target.value); setEntryPinError(''); }} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-center text-xl tracking-[0.5em] text-white outline-none focus:border-cyan-400" placeholder="••••••" required />
-              {entryPinError && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{entryPinError}</p>}
-              <button type="submit" className="mt-5 w-full rounded-xl bg-cyan-400 px-5 py-4 text-sm font-black text-slate-950 hover:bg-cyan-300">UNLOCK SETUP</button>
-              <button type="button" onClick={() => { setEntryPin(''); setEntryPinError(''); setEntryScreen('welcome'); }} className="mt-3 w-full rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-400 hover:text-white">Back</button>
-            </form>
           )}
         </section>
       </div>
