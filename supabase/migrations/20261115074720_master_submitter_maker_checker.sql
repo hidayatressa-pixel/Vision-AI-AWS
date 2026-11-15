@@ -28,7 +28,7 @@ begin
       raise exception 'Invalid pending approval transition';
     end if;
     if new.status = 'APPROVED'
-       and (new.approved_by is null or new.approved_by = old.submitted_by) then
+       and (new.approved_by is null or new.approved_by = old.submitted_by or new.approved_by = old.created_by) then
       raise exception 'Maker-checker violation: submitter cannot approve own Master revision';
     end if;
   end if;
@@ -60,12 +60,13 @@ language plpgsql
 set search_path = pg_catalog, public
 as $$
 declare
+  revision_creator uuid;
   revision_submitter uuid;
   revision_status text;
   revision_approver uuid;
 begin
-  select submitted_by, status, approved_by
-    into revision_submitter, revision_status, revision_approver
+  select created_by, submitted_by, status, approved_by
+    into revision_creator, revision_submitter, revision_status, revision_approver
   from public.vision_master_revisions
   where master_id = new.master_id and id = new.revision_id;
 
@@ -80,12 +81,14 @@ begin
 
   if new.action = 'APPROVED'
      and (revision_status <> 'APPROVED' or revision_approver is distinct from new.actor_id
-          or revision_submitter is null or revision_submitter = new.actor_id) then
+          or revision_submitter is null or revision_submitter = new.actor_id
+          or revision_creator = new.actor_id) then
     raise exception 'APPROVED event must match an independent revision approver';
   end if;
 
   if new.action = 'REJECTED'
-     and (revision_status <> 'REJECTED' or revision_submitter is null or revision_submitter = new.actor_id) then
+     and (revision_status <> 'REJECTED' or revision_submitter is null or revision_submitter = new.actor_id
+          or revision_creator = new.actor_id) then
     raise exception 'REJECTED event must match an independent revision reviewer';
   end if;
 
