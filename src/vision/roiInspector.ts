@@ -312,9 +312,15 @@ function comparePatches(
       : structureDifference * 0.75 + brightnessDifference * 0.25;
   const pixelSimilarity = Math.max(0, Math.min(1, 1 - pixelDifference));
   const shapeScore = compareDescriptors(referenceShape, currentShape);
-  // Shape remains dominant; color is an independent recognition signal.
-  // A color mismatch lowers similarity but cannot by itself prove absence.
-  const score = Math.max(0, Math.min(1, pixelSimilarity * 0.30 + shapeScore * 0.55 + colorScore * 0.15));
+  // Master-configured color weight supplements shape and local texture.
+  // Color is never allowed to replace the independent presence/background evidence.
+  const colorWeight = Math.max(0.05, Math.min(0.4, roi.colorWeight ?? 0.15));
+  const structureWeight = 1 - colorWeight;
+  const score = Math.max(0, Math.min(1,
+    pixelSimilarity * structureWeight * (0.30 / 0.85) +
+    shapeScore * structureWeight * (0.55 / 0.85) +
+    colorScore * colorWeight
+  ));
   return { score, shapeScore, colorScore, referenceShape, currentShape };
 }
 
@@ -448,6 +454,7 @@ export class ROIInspector {
         : null;
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
       const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
+      const minColorSimilarity = Math.max(0.4, Math.min(0.98, roi.minColorSimilarity ?? 0.55));
 
       if (!hasPresenceEvidence) {
         results.push({
@@ -472,6 +479,7 @@ export class ROIInspector {
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
         const missingConfirmed = Boolean(bestAbsentNg &&
+          bestAbsentNg.colorScore >= minColorSimilarity &&
           confirmsMissingObject(currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin) &&
           (!eightPointPresenceMode || confirmsEightPointAbsence(
             currentShape.present,
@@ -506,6 +514,7 @@ export class ROIInspector {
 
       if (!expectedPresence && currentShape.present) {
         const ngConfirmed = Boolean(bestNg?.referenceShape.present &&
+          bestNg.colorScore >= minColorSimilarity &&
           bestNg.score >= threshold &&
           bestNg.score - bestOk.score >= classMargin);
         if (ngConfirmed) {
@@ -533,7 +542,7 @@ export class ROIInspector {
         // An empty-looking crop is not enough to pass. The surrounding target
         // area/background must match the approved empty-state Master, and the
         // labelled NG reference must prove what an unwanted object looks like.
-        const negativeReferenceValid = Boolean(bestNg?.referenceShape.present);
+        const negativeReferenceValid = Boolean(bestNg?.referenceShape.present && bestNg.colorScore >= minColorSimilarity);
         const ngConfirmed = negativeReferenceValid &&
           bestNg!.score >= threshold &&
           bestNg!.score - bestOk.score >= classMargin;
@@ -570,6 +579,15 @@ export class ROIInspector {
             frame.width, frame.height, currentShape
           ));
         }
+        continue;
+      }
+
+      if (expectedPresence && currentShape.present && bestOk.colorScore < minColorSimilarity) {
+        results.push(uncertainResult(
+          roi, geometry,
+          `${roi.name}: screw-like object was detected but its color signature does not match the approved Master`,
+          frame.width, frame.height, currentShape
+        ));
         continue;
       }
 
