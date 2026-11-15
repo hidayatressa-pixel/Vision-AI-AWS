@@ -52,16 +52,21 @@ class DatabaseService {
   }
 
   private async uploadMasterImage(masterId: string, revisionId: string, fileName: string, imageUrl: string, existingPath?: string): Promise<string> {
-    if (existingPath) return existingPath;
-    if (!imageUrl) return '';
     if (!supabase) throw new Error('Supabase Storage is not configured.');
-    if (!imageUrl.startsWith('data:image/')) throw new Error('Master image is missing its Storage object path. Re-upload it before saving.');
-    const response = await fetch(imageUrl);
+    const revisionPrefix = this.safePathSegment(masterId) + '/' + this.safePathSegment(revisionId) + '/';
+    // Reuse an object only when it already belongs to this exact revision.
+    // Cloned revisions must receive independent immutable asset paths.
+    if (existingPath && existingPath.startsWith(revisionPrefix)) return existingPath;
+    let sourceUrl = imageUrl;
+    if (!sourceUrl && existingPath) sourceUrl = await this.signedAssetUrl(existingPath);
+    if (!sourceUrl) throw new Error('Master image is missing. Upload or re-select the image before saving.');
+    const response = await fetch(sourceUrl);
+    if (!response.ok) throw new Error('Unable to read the source Master image for this revision.');
     const blob = await response.blob();
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new Error('Master assets must be JPG, PNG, or WEBP images.');
     if (blob.size > 25 * 1024 * 1024) throw new Error('Master image exceeds the 25 MiB Storage limit.');
     const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/png' ? 'png' : 'webp';
-    const objectPath = this.safePathSegment(masterId) + '/' + this.safePathSegment(revisionId) + '/' + fileName + '.' + extension;
+    const objectPath = revisionPrefix + fileName + '.' + extension;
     const { error } = await supabase.storage.from(MASTER_BUCKET).upload(objectPath, blob, { contentType: blob.type, upsert: true });
     if (error) throw new Error('Master asset upload failed: ' + error.message);
     return objectPath;
