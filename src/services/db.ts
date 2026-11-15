@@ -7,29 +7,34 @@
  */
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
+import { InspectionRecord, InspectionStats } from '../types/inspection';
 import { MasterProduct } from '../types/master';
+import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
-const HISTORY_TABLE = 'inspection_history';
+const VISION_API_URL = getVisionApiBaseUrl();
 
 class DatabaseService {
-  private getCloudConfig() {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      throw new Error(
-        'Cloud database is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.'
-      );
+  private getHistoryApiUrl(): string {
+    if (!VISION_API_URL) {
+      throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
     }
-    return { url: `${SUPABASE_URL}/rest/v1/${HISTORY_TABLE}`, key: SUPABASE_KEY };
+    return `${VISION_API_URL}/v1/inspection-history`;
   }
 
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
-    const config = this.getCloudConfig();
-    const response = await fetch(`${config.url}${path}`, {
+    const token = await getSupabaseAccessToken();
+    const method = (init.method || 'GET').toUpperCase();
+    const url = new URL(this.getHistoryApiUrl());
+    if (method === 'GET' && path.startsWith('?')) {
+      const requestedLimit = new URLSearchParams(path.slice(1)).get('limit');
+      if (requestedLimit) url.searchParams.set('limit', requestedLimit);
+    }
+
+    const response = await fetch(url.toString(), {
       ...init,
+      method,
       headers: {
-        apikey: config.key,
-        Authorization: `Bearer ${config.key}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         ...init.headers,
       },
@@ -37,7 +42,7 @@ class DatabaseService {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`Cloud database error ${response.status}: ${body || response.statusText}`);
+      throw new Error(`Vision backend error ${response.status}: ${body || response.statusText}`);
     }
 
     if (response.status === 204) return undefined as T;
@@ -279,12 +284,12 @@ class DatabaseService {
 
   public async getRecentInspections(limit = 500): Promise<InspectionRecord[]> {
     const local = this.getLocalHistory();
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
+    if (!VISION_API_URL) {
       return local.slice(0, Math.max(1, Math.min(limit, 5000)));
     }
 
     try {
-      const rows = await this.request<any[]>(`?select=*&order=timestamp.desc&limit=${Math.max(1, Math.min(limit, 5000))}`);
+      const rows = await this.request<any[]>(`?limit=${Math.max(1, Math.min(limit, 5000))}`);
       return this.mergeHistory(rows.map((row) => this.fromCloudRecord(row)), local).slice(0, Math.max(1, Math.min(limit, 5000)));
     } catch (error) {
       console.warn('[DatabaseService] Cloud history read failed; using local history:', error);
@@ -345,12 +350,11 @@ class DatabaseService {
   }
 
   public async clearInspectionHistory(): Promise<void> {
+    if (!VISION_API_URL) {
+      throw new Error('Vision backend is not configured; cloud history was not cleared.');
+    }
+    await this.request('', { method: 'DELETE' });
     this.removeAllLocalHistory();
-    if (!SUPABASE_URL || !SUPABASE_KEY) return;
-    await this.request('?id=not.is.null', {
-      method: 'DELETE',
-      headers: { Prefer: 'return=minimal' },
-    });
   }
 
   public async getPendingSyncCount(): Promise<number> {
