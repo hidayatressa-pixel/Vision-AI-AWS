@@ -314,6 +314,8 @@ function VisionApp() {
       void activateVisionSession({
         productCode: activeMaster?.productCode || 'UNKNOWN',
         revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
+        masterId: activeMaster?.id || '',
+        masterRevisionId: activeRevision?.id || '',
       }).then(() => {
         setSystemMessage('BACKEND SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
         setSystemMessageLevel('success');
@@ -381,7 +383,7 @@ function VisionApp() {
         savedAt: new Date().toISOString(),
       });
       finalizeEndSession('CONFIGURATION SAVED — LIVE INSPECTION SESSION ENDED', 'success');
-      void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
+      void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN', masterId: activeMaster?.id || '', masterRevisionId: activeRevision?.id || '' }).catch((error) => {
         console.error('[Vision backend session end]', error);
         setSystemMessage('CONFIGURATION SAVE CONFIRMED — BACKEND END EVENT COULD NOT BE CONFIRMED');
         setSystemMessageLevel('warning');
