@@ -4,7 +4,7 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: '/Vision-AI-AWS/',
+  base: process.env.GITHUB_ACTIONS === 'true' ? '/Vision-AI-AWS/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
