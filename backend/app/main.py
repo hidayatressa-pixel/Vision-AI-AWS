@@ -739,6 +739,12 @@ def update_master_metadata(
 ):
     actor = str(user.get("id"))
     with db.connection() as connection, connection.transaction():
+        pending = connection.execute(
+            "select 1 from public.vision_master_revisions where master_id=%s and status='PENDING_APPROVAL' limit 1",
+            (master_id,),
+        ).fetchone()
+        if pending:
+            raise HTTPException(status_code=409, detail="Master identity is locked while a revision is pending approval")
         row = connection.execute(
             """update public.vision_masters
                set product_code=%s, product_name=%s, description=%s, updated_by=%s, updated_at=now()
