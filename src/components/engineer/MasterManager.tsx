@@ -44,6 +44,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
     activeMaster &&
     activeRevision &&
     activeRevision.masterId === activeMaster.id &&
+    activeRevision.status === 'APPROVED' &&
+    activeMaster.activeRevisionId === activeRevision.id &&
     activeMasterChecks.length > 0 &&
     activeMasterChecks.every((check) => check.valid)
   );
