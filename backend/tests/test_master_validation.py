@@ -67,6 +67,11 @@ def valid_eight_point_revision():
     ]
     payload["expectedObjectCount"] = 8
     payload["inspectionProfile"] = "EIGHT_POINT_PRESENCE"
+    payload["anchors"] = [
+        {"id": "A", "x": 0.1, "y": 0.1, "searchRadius": 0.1, "patchRadius": 8},
+        {"id": "B", "x": 0.9, "y": 0.1, "searchRadius": 0.1, "patchRadius": 8},
+        {"id": "C", "x": 0.1, "y": 0.9, "searchRadius": 0.1, "patchRadius": 8},
+    ]
     payload["inspectionROIs"] = []
     layouts = {}
     for index, (x, y) in enumerate(positions, start=1):
