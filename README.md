@@ -1,6 +1,6 @@
 # Vision-AI AWS — OpenCV 5 Evidence Analyzer
 
-AWS-focused verification implementation for the Vision-AI project. This repository contains the AWS analyzer, infrastructure definition, tests, and submission evidence documentation. The production frontend and inspection application are maintained separately in [Vision-Ai-Prod](https://github.com/hidayatressa-pixel/Vision-Ai-Prod); their source is not copied into this repository.
+Public-first Vision-AI AWS demonstration repository. It contains a browser-based inspection UI, OpenCV 5 analyzer, AWS infrastructure definition, tests, and deployment documentation. The separate [Vision-Ai-Prod](https://github.com/hidayatressa-pixel/Vision-Ai-Prod) repository remains the production application; do not use this public demo for confidential production data.
 
 ## Purpose
 
@@ -32,9 +32,11 @@ The AWS SAM template defines:
 
 The S3 notification only watches the `incoming/` prefix. Output is stored under `results/` to prevent result objects from recursively triggering analysis.
 
-## Repository scope
+## Public demo and repository scope
 
-This repository is intentionally AWS-only. It does not host or build the production React application, and it does not deploy a frontend to GitHub Pages. Production inspection logic and its UI remain in the separate [Vision-Ai-Prod repository](https://github.com/hidayatressa-pixel/Vision-Ai-Prod).
+The React/Vite inspection demonstration lives at the repository root (`src/`, `index.html`, and `package.json`) and is published through GitHub Pages. The separate `frontend/` directory is an isolated setup prototype and is not the Pages deployment target. Production application ownership remains in [Vision-Ai-Prod](https://github.com/hidayatressa-pixel/Vision-Ai-Prod).
+
+**Public deployment warning:** anyone can open the demo. Browser-side master data is stored locally and is not an authenticated private database. Do not upload confidential drawings, customer information, credentials, production images, or sensitive inspection records. The engineering PIN was removed from the public build because a `VITE_*` value is visible in downloaded JavaScript and is not authentication.
 
 ## Local verification
 
@@ -66,20 +68,38 @@ docker build -t vision-ai-aws-opencv5 aws/vision-analyzer
 docker run --rm --entrypoint python vision-ai-aws-opencv5 -c "import cv2; print(cv2.__version__); assert cv2.__version__.startswith('5.')"
 ```
 
-## AWS deployment
+## Deployment sequence
 
-Infrastructure is defined in `aws/vision-analyzer/template.yaml`. After reviewing AWS account, region, permissions, and cost implications:
+### 1. GitHub Pages frontend
+
+The workflow `.github/workflows/deploy-pages.yml` builds the root React/Vite application and publishes `dist/` on pushes to `main`. Configure these GitHub Actions repository variables after the AWS API exists:
+
+- `VISION_CONFIG_API_URL` — deployed `/Prod/config` endpoint.
+- `VISION_SESSION_API_URL` — deployed `/Prod/session` endpoint.
+- `VISION_EVENT_API_URL` — leave unset until a dedicated event-ingestion route exists. `/Prod/analyze` expects an `image_base64` image payload and is not compatible with inspection-event JSON.
+
+These values are public endpoint URLs, not secrets. Never put credentials or private tokens in `VITE_*` variables.
+
+### 2. AWS backend
+
+Infrastructure is defined in `aws/vision-analyzer/template.yaml`. Review account, region, permissions, and cost implications before deployment:
 
 ```bash
 sam build --template-file aws/vision-analyzer/template.yaml
-sam deploy --guided
+sam deploy --guided --parameter-overrides AllowedOrigin=https://hidayatressa-pixel.github.io
 ```
 
-Deployment creates AWS resources and may incur charges. No live endpoint or end-to-end AWS execution should be claimed until the stack has actually been deployed and tested.
+The template provisions Lambda, API Gateway, and a private encrypted S3 evidence bucket. API Gateway is public and throttled; CORS limits browser origins but is **not authentication**. Treat this as a demonstration backend only. Do not send confidential production data until proper user authentication, authorization, retention, and abuse controls are implemented. Deployment creates AWS resources and may incur charges.
+
+### 3. Connect and verify
+
+Copy the `/Prod/config` and `/Prod/session` output URLs from the deployed SAM stack into the GitHub Actions repository variables, then rerun the Pages workflow. Verify `/analyze`, `/config`, and `/session` with non-sensitive test data before claiming an end-to-end deployment.
+
+No live endpoint or end-to-end AWS execution should be claimed until the stack has actually been deployed and tested.
 
 ## Continuous integration
 
-The `aws-opencv5` GitHub Actions job installs dependencies, runs the API analyzer tests, runs the mocked S3 event test, builds the Lambda container, and verifies OpenCV 5 inside that container. CI does not deploy AWS resources.
+The CI workflow tests the frontend and Lambda analyzer, builds the Lambda container, and verifies OpenCV 5. CI does not deploy AWS resources. The Pages workflow publishes the root frontend; AWS SAM deployment remains a separate, explicit operation.
 
 ## Evidence status
 

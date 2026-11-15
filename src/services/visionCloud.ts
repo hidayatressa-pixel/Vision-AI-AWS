@@ -1,5 +1,4 @@
-const VISION_API_URL =
-  'https://tfu0e7nbj0.execute-api.ap-southeast-2.amazonaws.com/default/vision-ai-backend';
+const VISION_EVENT_API_URL = String(import.meta.env.VITE_VISION_EVENT_API_URL || '').trim();
 
 export interface VisionCloudEvent {
   status: 'OK' | 'NG' | 'INVALID' | 'ERROR' | 'STANDBY';
@@ -23,8 +22,9 @@ function clampConfidence(value: number): number {
 }
 
 export async function sendVisionEvent(event: VisionCloudEvent): Promise<void> {
+  if (!VISION_EVENT_API_URL) return;
   try {
-    const response = await fetch(VISION_API_URL, {
+    const response = await fetch(VISION_EVENT_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

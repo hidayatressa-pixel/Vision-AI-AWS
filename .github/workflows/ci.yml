@@ -34,9 +34,17 @@ jobs:
         run: npm run audit:eight-point
       - name: Build frontend
         run: npm run build
+      - name: Build isolated frontend prototype
+        run: |
+          cd frontend
+          npm install
+          npm run build
 
   aws-opencv5:
     runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+      SAM_CLI_TELEMETRY: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,12 +52,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Setup AWS SAM CLI
+        uses: aws-actions/setup-sam@v3
       - name: Install AWS analyzer dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r aws/vision-analyzer/requirements.txt pytest
       - name: Run API analyzer and S3 event tests
         run: pytest -q aws/vision-analyzer/test_app.py tests/test_s3_path.py
+      - name: Validate AWS SAM template
+        run: sam validate --template-file aws/vision-analyzer/template.yaml
       - name: Build Lambda container
         run: docker build -t vision-ai-aws-opencv5 aws/vision-analyzer
       - name: Prove Lambda container uses OpenCV 5

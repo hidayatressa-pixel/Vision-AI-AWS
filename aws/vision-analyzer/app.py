@@ -76,7 +76,7 @@ def analyze_image(raw: bytes) -> dict:
 def _response(status: int, body: dict):
     return {
         "statusCode": status,
-        "headers": {"content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "content-type", "access-control-allow-methods": "OPTIONS,POST"},
+        "headers": {"content-type": "application/json", "access-control-allow-origin": os.getenv("ALLOWED_ORIGIN", "https://hidayatressa-pixel.github.io"), "access-control-allow-headers": "content-type", "access-control-allow-methods": "OPTIONS,POST", "vary": "Origin"},
         "body": json.dumps(body),
     }
 
