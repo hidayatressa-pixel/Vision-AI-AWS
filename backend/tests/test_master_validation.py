@@ -8,6 +8,18 @@ def valid_revision():
         "masterImagePath": "PRODUCT/REV-01/master-image.png",
         "masterWidth": 1280,
         "masterHeight": 720,
+        "detectionZone": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        "tolerance": {
+            "maxPositionOffsetMm": 1.0,
+            "maxPositionOffsetPx": 8.0,
+            "maxRotationToleranceDeg": 3.0,
+            "minAlignmentConfidence": 0.7,
+            "minScrewConfidence": 0.75,
+            "stabilizationDelayMs": 500,
+            "stabilizationMotionThreshold": 0.1,
+            "partRemovalThreshold": 0.2,
+            "detectionZonePresenceThreshold": 0.7,
+        },
         "expectedObjectCount": 1,
         "anchors": [],
         "inspectionROIs": [
