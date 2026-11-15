@@ -63,7 +63,12 @@ class DatabaseService {
     let sourceUrl = imageUrl;
     if (!sourceUrl && existingPath) sourceUrl = await this.signedAssetUrl(existingPath);
     if (!sourceUrl) throw new Error('Master image is missing. Upload or re-select the image before saving.');
-    const response = await fetch(sourceUrl);
+    let response = await fetch(sourceUrl);
+    if (!response.ok && existingPath) {
+      // A previously materialized signed URL may have expired while the editor stayed open.
+      sourceUrl = await this.signedAssetUrl(existingPath);
+      response = await fetch(sourceUrl);
+    }
     if (!response.ok) throw new Error('Unable to read the source Master image for this revision.');
     const blob = await response.blob();
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new Error('Master assets must be JPG, PNG, or WEBP images.');
