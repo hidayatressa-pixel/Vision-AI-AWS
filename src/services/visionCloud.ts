@@ -1,6 +1,7 @@
 import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
 
 const VISION_API_URL = getVisionApiBaseUrl();
+const VISION_STATION_ID = String(import.meta.env.VITE_VISION_STATION_ID || 'VISION-AI-AWS').trim();
 const REQUEST_TIMEOUT_MS = 8000;
 
 export interface VisionCloudEvent {
@@ -8,6 +9,9 @@ export interface VisionCloudEvent {
   confidence: number;
   mode: 'CONTINUOUS';
   jig: string;
+  stationId?: string;
+  masterId?: string;
+  masterRevisionId?: string;
   inspectionId?: string;
   timestamp: string;
   productCode?: string;
@@ -90,6 +94,9 @@ export function sendInspectionResult(params: {
     confidence: Number(confidence.toFixed(3)),
     mode: 'CONTINUOUS',
     jig: params.jig,
+    stationId: VISION_STATION_ID,
+    masterId: params.masterId,
+    masterRevisionId: params.masterRevisionId,
     inspectionId: params.inspectionId,
     timestamp: new Date().toISOString(),
     productCode: params.productCode,
@@ -108,6 +115,7 @@ export function sendStandbyEvent(jig: string): void {
     confidence: 1,
     mode: 'CONTINUOUS',
     jig,
+    stationId: VISION_STATION_ID,
     timestamp: new Date().toISOString(),
   });
 }
@@ -119,12 +127,14 @@ export function markInspectionLifecycleComplete(status: 'OK' | 'NG' | 'INVALID' 
 export interface VisionSessionContext {
   productCode: string;
   revisionCode: string;
+  masterId: string;
+  masterRevisionId: string;
 }
 
 export async function activateVisionSession(context: VisionSessionContext): Promise<void> {
   const response = await postAuthenticated('/v1/sessions', {
     action: 'START_SESSION',
-    context: { ...context, stationId: 'VISION-AI-AWS' },
+    context: { ...context, stationId: VISION_STATION_ID },
     timestamp: new Date().toISOString(),
   });
   if (!response.ok) {
@@ -160,7 +170,7 @@ export async function saveConfigurationToVisionBackend(configuration: {
 }): Promise<void> {
   const response = await postAuthenticated('/v1/configurations', {
     action: 'SAVE_CONFIGURATION',
-    configuration: { ...configuration, stationId: 'VISION-AI-AWS' },
+    configuration: { ...configuration, stationId: VISION_STATION_ID },
   });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
