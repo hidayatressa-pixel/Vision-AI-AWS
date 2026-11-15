@@ -1,9 +1,9 @@
 /**
  * Persistence service for Vision-AI.
  *
- * Master configuration remains local to the station for now. Inspection history
- * is cloud-first and is stored in Supabase/PostgREST so every device sees the
- * same history. No service-role key is ever used in the browser.
+ * Master products and immutable revisions are centrally stored in Supabase
+ * PostgreSQL, with private revision-scoped assets in Supabase Storage. Inspection
+ * history is cloud-first. No service-role key is ever used in the browser.
  */
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
