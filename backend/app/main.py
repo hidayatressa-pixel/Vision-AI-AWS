@@ -631,6 +631,14 @@ def assign_user_stations(
         raise HTTPException(status_code=422, detail="Station IDs must not exceed 120 characters")
     actor_id = str(user.get("id"))
     with db.connection() as connection, connection.transaction():
+        target = connection.execute(
+            "select role,is_active from public.vision_user_roles where user_id=%s for update",
+            (user_id,),
+        ).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="Vision user role was not found")
+        if not target["is_active"] or target["role"] != "OPERATOR":
+            raise HTTPException(status_code=409, detail="Station access can only be assigned to an active Operator")
         existing = connection.execute(
             "select station_id,is_active from public.vision_user_station_access where user_id=%s for update",
             (user_id,),
