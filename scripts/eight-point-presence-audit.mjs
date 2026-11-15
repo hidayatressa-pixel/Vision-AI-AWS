@@ -20,6 +20,15 @@ const rois = slotCenters.map(([x, y], index) => ({
   expectedObjectPresence: true,
 }));
 
+assert.equal(engine.isEightPointPresenceCandidate(rois, 'EIGHT_POINT_PRESENCE'), true,
+  'explicit eight-point profile must activate the dedicated engine');
+assert.equal(engine.isEightPointPresenceCandidate(rois.slice(1), 'EIGHT_POINT_PRESENCE'), true,
+  'an incomplete explicit eight-point profile must remain in fail-safe mode');
+assert.ok(engine.validateEightPointPresenceLayout(rois.slice(1), 'EIGHT_POINT_PRESENCE').length > 0,
+  'a missing screw ROI must invalidate the explicit eight-point profile instead of falling back to standard ROI mode');
+assert.equal(engine.isEightPointPresenceCandidate(rois, 'STANDARD'), false,
+  'an explicitly standard profile must not be auto-promoted by having eight screw ROIs');
+
 function resultFor(roi, evidence) {
   return {
     roiId: roi.id,
