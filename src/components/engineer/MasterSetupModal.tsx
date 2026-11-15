@@ -736,7 +736,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
               <span>{isEightPointPresenceMode
-                ? 'Each of the eight slots is checked for physical screw presence against the positive OK Master. NG reference images are optional.'
+                ? 'Each of the eight slots is checked against the positive screw Master and a validated empty-slot NG reference. Neither missing evidence nor an unrecognized area may pass.'
                 : 'Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.'}</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
