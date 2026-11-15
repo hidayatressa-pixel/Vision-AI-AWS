@@ -25,13 +25,14 @@ import { PhoneCameraView } from './components/camera/PhoneCameraView';
 import { getMasterValidationChecks } from './services/setupValidation';
 import { activateAwsSession, endAwsSession, saveConfigurationToAws } from './services/visionCloud';
 import { LockKeyhole, ScanLine, ShieldCheck } from 'lucide-react';
+import { AuthGate } from './components/auth/AuthGate';
 
 function isPhoneCameraRoute() {
   const params = new URLSearchParams(window.location.search);
   return params.get('camera') === 'phone' && Boolean(params.get('session'));
 }
 
-export default function App() {
+function VisionApp() {
   if (isPhoneCameraRoute()) {
     return <PhoneCameraView />;
   }
@@ -269,17 +270,17 @@ export default function App() {
       }
       setSessionActive(true);
       localStorage.setItem('vision-ai-session-active', '1');
-      setSystemMessage('INSPECTION SESSION STARTED — CONNECTING TO AWS...');
+      setSystemMessage('INSPECTION SESSION STARTED — CONNECTING TO VISION BACKEND...');
       setSystemMessageLevel('info');
       void activateAwsSession({
         productCode: activeMaster?.productCode || 'UNKNOWN',
         revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
       }).then(() => {
-        setSystemMessage('AWS SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
+        setSystemMessage('BACKEND SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
         setSystemMessageLevel('success');
       }).catch((error) => {
         console.error('[AWS session activation]', error);
-        setSystemMessage('AWS ACTIVATION FAILED — LOCAL INSPECTION IS RUNNING; CLOUD EVENT WAS NOT CONFIRMED');
+        setSystemMessage('BACKEND ACTIVATION FAILED — LOCAL INSPECTION IS RUNNING; CLOUD EVENT WAS NOT CONFIRMED');
         setSystemMessageLevel('warning');
       });
     } catch (error) {
@@ -321,7 +322,7 @@ export default function App() {
       revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
     }).catch((error) => {
       console.error('[AWS session end]', error);
-      setSystemMessage('LIVE INSPECTION ENDED — AWS END EVENT COULD NOT BE CONFIRMED');
+      setSystemMessage('LIVE INSPECTION ENDED — BACKEND END EVENT COULD NOT BE CONFIRMED');
       setSystemMessageLevel('warning');
     });
   };
@@ -330,7 +331,7 @@ export default function App() {
     if (sessionEnding) return;
     setSessionEnding(true);
     setSaveError('');
-    setSystemMessage('SAVING CONFIGURATION TO AWS...');
+    setSystemMessage('SAVING CONFIGURATION TO VISION BACKEND...');
     setSystemMessageLevel('info');
     try {
       await saveConfigurationToAws({
@@ -343,7 +344,7 @@ export default function App() {
       finalizeEndSession('CONFIGURATION SAVED — LIVE INSPECTION SESSION ENDED', 'success');
       void endAwsSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
         console.error('[AWS session end]', error);
-        setSystemMessage('CONFIGURATION SAVE CONFIRMED — AWS END EVENT COULD NOT BE CONFIRMED');
+        setSystemMessage('CONFIGURATION SAVE CONFIRMED — BACKEND END EVENT COULD NOT BE CONFIRMED');
         setSystemMessageLevel('warning');
       });
     } catch (error) {
@@ -560,8 +561,8 @@ export default function App() {
           <section role="dialog" aria-modal="true" aria-labelledby="end-session-title" className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-slate-950 p-6 shadow-2xl">
             <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-300">Session control</div>
             <h2 id="end-session-title" className="mt-2 text-xl font-black text-white">END LIVE INSPECTION</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-300">Are you sure you want to end Live Inspection? Would you like to save your setup configuration, master configuration, and camera settings to AWS before ending the session?</p>
-            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">The session will end with either choice. Saving is confirmed only after AWS acknowledges the configuration write.</div>
+            <p className="mt-3 text-sm leading-6 text-slate-300">Are you sure you want to end Live Inspection? Would you like to save your setup configuration, master configuration, and camera settings to the Vision backend before ending the session?</p>
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">The session will end with either choice. Saving is confirmed only after the Vision backend acknowledges the configuration write.</div>
             {saveError && <div role="alert" className="mt-3 rounded-lg border border-rose-500/40 bg-rose-950/30 p-3 text-xs text-rose-200">SAVE FAILED: {saveError}</div>}
             <div className="mt-5 grid grid-cols-1 gap-2">
               <button type="button" onClick={handleSaveAndEndSession} disabled={sessionEnding} className="rounded-xl bg-emerald-400 px-4 py-3 text-xs font-black text-slate-950 hover:bg-emerald-300 disabled:opacity-50">{sessionEnding ? 'SAVING...' : 'SAVE & END SESSION'}</button>
@@ -573,4 +574,9 @@ export default function App() {
       )}
     </div>
   );
+}
+
+
+export default function App() {
+  return <AuthGate><VisionApp /></AuthGate>;
 }
