@@ -611,6 +611,8 @@ export function useInspectionPipeline({
         alignmentConfidence: alignment.confidence,
         roiConfidences: roiResults.map((roi) => roi.confidence),
         jig: cloudIdentity.stationId,
+        masterId: master.id,
+        masterRevisionId: revision.id,
         inspectionId,
         productCode: master.productCode,
         revisionCode: revision.revisionCode,
