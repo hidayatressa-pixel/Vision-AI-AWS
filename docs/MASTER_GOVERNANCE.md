@@ -7,7 +7,7 @@
 - Supabase Storage bucket `vision-assets` is private. Master and reference images are stored as object paths in revision JSON; the browser receives temporary signed URLs only.
 - `vision_configurations` stores station camera/runtime settings and compact Master/revision identifiers. It is not the Master catalogue.
 - A station can start Live Inspection only after FastAPI confirms that the exact approved Master/revision is assigned to that station.
-- Inspection events and history include the exact Master and revision IDs. History inserts are idempotent and cannot overwrite an existing record.
+- Inspection events, sessions, station configuration snapshots, and history include the exact Master/revision IDs and the immutable revision checksum. The backend verifies the ID, revision code, checksum, and station assignment before accepting a production event or history row. History inserts are idempotent and cannot overwrite an existing record.
 
 ## Revision lifecycle
 
