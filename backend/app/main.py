@@ -298,7 +298,11 @@ def _audit(connection, master_id: str, revision_id: str | None, actor_id: str, a
 
 
 def _canonical_checksum(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    # The checksum is stored beside the JSON snapshot, never inside itself.
+    # Excluding a client-supplied prior checksum avoids hash chaining on edits.
+    canonical = dict(payload)
+    canonical.pop("checksum", None)
+    encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -602,7 +606,9 @@ def create_master(
     if not all((mid, rid, code, name)):
         raise HTTPException(status_code=422, detail="Master/revision identifiers, product code, and name are required")
     actor = str(user.get("id"))
-    checksum = _canonical_checksum(revision)
+    revision_snapshot = dict(revision)
+    revision_snapshot.pop("checksum", None)
+    checksum = _canonical_checksum(revision_snapshot)
     with db.connection() as connection, connection.transaction():
         connection.execute(
             """insert into public.vision_masters
@@ -615,7 +621,7 @@ def create_master(
                (id,master_id,revision_code,revision_note,status,revision_payload,checksum,created_by)
                values (%s,%s,%s,%s,'DRAFT',%s,%s,%s)""",
             (rid, mid, str(revision.get("revisionCode") or "REV-01"),
-             str(revision.get("revisionNote") or ""), Jsonb(revision), checksum, actor),
+             str(revision.get("revisionNote") or ""), Jsonb(revision_snapshot), checksum, actor),
         )
         _audit(connection, mid, rid, actor, "MASTER_CREATED", {"product_code": code})
     return {"created": True, "master_id": mid, "revision_id": rid, "status": "DRAFT", "checksum": checksum}
@@ -629,7 +635,10 @@ def save_master_revision(
     revision = payload.revision
     if str(payload.master.get("id") or "") != master_id or str(revision.get("id") or "") != revision_id:
         raise HTTPException(status_code=422, detail="Master/revision identity mismatch")
-    actor, checksum = str(user.get("id")), _canonical_checksum(revision)
+    actor = str(user.get("id"))
+    revision_snapshot = dict(revision)
+    revision_snapshot.pop("checksum", None)
+    checksum = _canonical_checksum(revision_snapshot)
     with db.connection() as connection, connection.transaction():
         exists = connection.execute("select id from public.vision_masters where id=%s for update", (master_id,)).fetchone()
         if not exists:
@@ -652,7 +661,7 @@ def save_master_revision(
                  approved_by=null, approved_at=null, updated_at=now()
                where vision_master_revisions.status in ('DRAFT','REJECTED')""",
             (revision_id, master_id, str(revision.get("revisionCode") or ""),
-             str(revision.get("revisionNote") or ""), Jsonb(revision), checksum, actor),
+             str(revision.get("revisionNote") or ""), Jsonb(revision_snapshot), checksum, actor),
         )
         saved = connection.execute(
             "select status from public.vision_master_revisions where master_id=%s and id=%s",
