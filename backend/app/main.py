@@ -510,6 +510,7 @@ def list_masters(
     station_id: str = Query(default="VISION-AI-AWS", min_length=1, max_length=120),
     user: dict[str, Any] = Depends(require_user), db: ConnectionPool = Depends(get_pool),
 ):
+    role = resolve_user_role(user, db)
     with db.connection() as connection:
         rows = connection.execute(
             """
@@ -524,8 +525,9 @@ def list_masters(
             left join public.vision_master_revisions r on r.master_id=m.id
             left join public.vision_station_master_assignments a
               on a.master_id=m.id and a.station_id=%s
+            where (%s <> 'OPERATOR' or r.id=a.revision_id)
             order by m.product_code, r.created_at
-            """, (station_id,),
+            """, (station_id, role),
         ).fetchall()
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
