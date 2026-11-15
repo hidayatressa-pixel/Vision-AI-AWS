@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as engine from '../src/vision/eightPointPresenceEngine.ts';
-import { confirmsEightPointAbsence } from '../src/vision/roiFeatureCore.js';
+import { compareDescriptors, confirmsEightPointAbsence, describePatch } from '../src/vision/roiFeatureCore.js';
 
 const slotCenters = [
   [0.18, 0.25], [0.39, 0.25], [0.61, 0.25], [0.82, 0.25],
@@ -48,6 +48,23 @@ assert.equal(engine.validateEightPointReferenceImages([
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: '' },
 ]), false, 'an empty OK reference must block the Master');
+
+const emptyPatch = new Float32Array(64 * 64).fill(80);
+const screwPatch = new Float32Array(64 * 64).fill(80);
+for (let y = 20; y < 44; y++) {
+  for (let x = 27; x < 37; x++) screwPatch[y * 64 + x] = 225;
+}
+const emptyFeatures = describePatch(emptyPatch, 64, 'contrast');
+const screwFeatures = describePatch(screwPatch, 64, 'contrast');
+assert.equal(emptyFeatures.present, false, 'a flat empty slot must not create a foreground object');
+assert.equal(screwFeatures.present, true, 'a clear screw-like foreground must be detected');
+const emptyVsPositiveScrew = compareDescriptors(emptyFeatures, screwFeatures);
+assert.equal(confirmsEightPointAbsence(
+  emptyFeatures.present,
+  emptyFeatures.presenceConfidence,
+  screwFeatures.present,
+  emptyVsPositiveScrew
+), true, 'actual empty and positive screw patch descriptors must confirm a missing screw');
 
 assert.equal(confirmsEightPointAbsence(false, 0.82, true, 0.05), true,
   'a clear empty slot that strongly differs from the positive screw shape must confirm absence');
