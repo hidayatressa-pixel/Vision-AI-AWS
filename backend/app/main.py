@@ -875,8 +875,17 @@ def create_session(
     master_id = context.get("masterId")
     revision_id = context.get("masterRevisionId")
     revision_checksum = context.get("masterRevisionChecksum")
-    with db.connection() as connection:
+    with db.connection() as connection, connection.transaction():
+        # Serialize session start/end and station assignment changes per station.
+        # The same advisory lock is acquired by the assignment trigger.
+        connection.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (station_id,))
+        latest = connection.execute(
+            "select action from public.vision_sessions where station_id=%s order by created_at desc limit 1",
+            (station_id,),
+        ).fetchone()
         if payload.action == "START_SESSION":
+            if latest and latest["action"] == "START_SESSION":
+                raise HTTPException(status_code=409, detail="A Live Inspection session is already active on this station")
             if not master_id or not revision_id or not revision_checksum:
                 raise HTTPException(status_code=422, detail="Session must include exact Master/revision IDs and checksum")
             assignment = connection.execute(
@@ -886,11 +895,14 @@ def create_session(
                 join public.vision_master_revisions r on r.master_id=a.master_id and r.id=a.revision_id
                 where a.station_id=%s and a.master_id=%s and a.revision_id=%s
                   and m.product_code=%s and r.revision_code=%s and r.checksum=%s and r.status='APPROVED'
+                for share of a
                 """,
                 (station_id, master_id, revision_id, context.get("productCode"), context.get("revisionCode"), revision_checksum),
             ).fetchone()
             if not assignment:
                 raise HTTPException(status_code=409, detail="Session rejected: approved Master revision is not assigned to this station")
+        elif not latest or latest["action"] != "START_SESSION":
+            raise HTTPException(status_code=409, detail="No active Live Inspection session exists on this station")
         row = connection.execute(
             """
             insert into public.vision_sessions
