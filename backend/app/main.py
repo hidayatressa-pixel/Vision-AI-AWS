@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -299,10 +300,17 @@ def _canonical_checksum(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
+def _validate_master_revision(payload: dict[str, Any], master_id: str | None = None, revision_id: str | None = None) -> list[str]:
     errors: list[str] = []
-    if not payload.get("masterImagePath"):
-        errors.append("Master image must be stored in the private vision-assets bucket")
+    master_path = str(payload.get("masterImagePath") or "")
+    if not master_path or master_path.startswith("/") or ".." in master_path.split("/"):
+        errors.append("Master image must use a safe private vision-assets Storage path")
+    if master_id and revision_id:
+        safe_master = re.sub(r"[^a-zA-Z0-9_-]", "_", master_id)[:100] or "asset"
+        safe_revision = re.sub(r"[^a-zA-Z0-9_-]", "_", revision_id)[:100] or "asset"
+        expected_prefix = safe_master + "/" + safe_revision + "/"
+        if not master_path.startswith(expected_prefix):
+            errors.append("Master image Storage path must belong to this exact Master revision")
     width, height = payload.get("masterWidth"), payload.get("masterHeight")
     if not isinstance(width, (int, float)) or not isinstance(height, (int, float)) or not math.isfinite(width) or not math.isfinite(height) or width <= 0 or height <= 0:
         errors.append("Master image dimensions must be positive")
@@ -364,13 +372,13 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
             color_threshold = roi.get("minColorSimilarity", 0.55)
             color_weight = roi.get("colorWeight", 0.15)
             class_margin = roi.get("minClassMargin", 0.06)
-            if not isinstance(confidence, (int, float)) or not 0.5 <= confidence <= 0.98:
+            if not isinstance(confidence, (int, float)) or not math.isfinite(confidence) or not 0.5 <= confidence <= 0.98:
                 errors.append(f"ROI {roi_id or '?'} similarity threshold must be between 0.5 and 0.98")
-            if not isinstance(color_threshold, (int, float)) or not 0.4 <= color_threshold <= 0.98:
+            if not isinstance(color_threshold, (int, float)) or not math.isfinite(color_threshold) or not 0.4 <= color_threshold <= 0.98:
                 errors.append(f"ROI {roi_id or '?'} color threshold must be between 0.4 and 0.98")
-            if not isinstance(color_weight, (int, float)) or not 0.05 <= color_weight <= 0.4:
+            if not isinstance(color_weight, (int, float)) or not math.isfinite(color_weight) or not 0.05 <= color_weight <= 0.4:
                 errors.append(f"ROI {roi_id or '?'} color weight must be between 0.05 and 0.4")
-            if not isinstance(class_margin, (int, float)) or not 0.02 <= class_margin <= 0.3:
+            if not isinstance(class_margin, (int, float)) or not math.isfinite(class_margin) or not 0.02 <= class_margin <= 0.3:
                 errors.append(f"ROI {roi_id or '?'} class margin must be between 0.02 and 0.3")
         except (KeyError, TypeError, ValueError):
             errors.append(f"ROI {roi_id or '?'} has invalid geometry")
@@ -410,6 +418,12 @@ def _validate_master_revision(payload: dict[str, Any]) -> list[str]:
         if not path or path.startswith("/") or ".." in path.split("/") or path in seen_paths:
             errors.append(f"Reference image {ref.get('id') or '?'} has a missing, duplicate, or unsafe Storage path")
             continue
+        if master_id and revision_id:
+            safe_master = re.sub(r"[^a-zA-Z0-9_-]", "_", master_id)[:100] or "asset"
+            safe_revision = re.sub(r"[^a-zA-Z0-9_-]", "_", revision_id)[:100] or "asset"
+            if not path.startswith(safe_master + "/" + safe_revision + "/"):
+                errors.append(f"Reference image {ref.get('id') or '?'} Storage path belongs to a different Master revision")
+                continue
         seen_paths.add(path)
         if (ref.get("kind") or "OK") not in ("OK", "NG"):
             errors.append(f"Reference image {ref.get('id') or '?'} has an unsupported class")
@@ -663,7 +677,7 @@ def submit_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] not in ("DRAFT", "REJECTED"):
             raise HTTPException(status_code=409, detail="Only DRAFT or REJECTED revisions can be submitted")
-        errors = _validate_master_revision(dict(row["revision_payload"] or {}))
+        errors = _validate_master_revision(dict(row["revision_payload"] or {}), master_id, revision_id)
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
         connection.execute(
