@@ -73,3 +73,13 @@ def test_api_does_not_leak_internal_exception_details(monkeypatch):
     response = lambda_handler(event, None)
     assert response["statusCode"] == 500
     assert "private infrastructure detail" not in response["body"]
+
+
+
+def test_api_response_uses_configured_public_origin(monkeypatch):
+    import app
+
+    monkeypatch.setenv("ALLOWED_ORIGIN", "https://hidayatressa-pixel.github.io")
+    response = app._response(200, {"ok": True})
+    assert response["headers"]["access-control-allow-origin"] == "https://hidayatressa-pixel.github.io"
+    assert response["headers"]["vary"] == "Origin"
