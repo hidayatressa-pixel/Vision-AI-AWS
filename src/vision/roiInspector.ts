@@ -76,6 +76,7 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
   const promise = new Promise<Float32Array | null>((resolve) => {
     if (!reference.imageUrl) return resolve(null);
     const image = new Image();
+    image.crossOrigin = 'anonymous';
     image.decoding = 'async';
     image.onload = () => resolve(imageToPatch(image, layout));
     image.onerror = () => resolve(null);
@@ -156,6 +157,7 @@ function loadReferenceColorSignature(reference: ReferenceImage, roi: InspectionR
   const promise = new Promise<ColorSignature | null>((resolve) => {
     if (!reference.imageUrl) return resolve(null);
     const image = new Image();
+    image.crossOrigin = 'anonymous';
     image.decoding = 'async';
     image.onload = () => resolve(imageToColorSignature(image, layout));
     image.onerror = () => resolve(null);
