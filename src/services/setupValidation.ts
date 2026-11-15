@@ -78,6 +78,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(roi.toleranceRadius) && roi.toleranceRadius >= 0.005 && roi.toleranceRadius <= 0.5 &&
       (roi.expectedObjectPresence === undefined || typeof roi.expectedObjectPresence === 'boolean') &&
       (roi.minClassMargin === undefined || (Number.isFinite(roi.minClassMargin) && roi.minClassMargin >= 0.02 && roi.minClassMargin <= 0.3)) &&
+      (roi.minColorSimilarity === undefined || (Number.isFinite(roi.minColorSimilarity) && roi.minColorSimilarity >= 0.4 && roi.minColorSimilarity <= 0.98)) &&
+      (roi.colorWeight === undefined || (Number.isFinite(roi.colorWeight) && roi.colorWeight >= 0.05 && roi.colorWeight <= 0.4)) &&
       (roi.sizeToleranceRatio === undefined || (Number.isFinite(roi.sizeToleranceRatio) && roi.sizeToleranceRatio >= 0.05 && roi.sizeToleranceRatio <= 1)) &&
       (roi.shapeToleranceRatio === undefined || (Number.isFinite(roi.shapeToleranceRatio) && roi.shapeToleranceRatio >= 0.05 && roi.shapeToleranceRatio <= 0.4)) &&
       ['screw', 'connector', 'clip', 'label', 'component'].includes(roi.objectType) &&
@@ -216,6 +218,18 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       valid: rois.every((roi) => Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98),
       detail: 'Configured per ROI',
       error: 'ROI similarity threshold must be between 50% and 98%.',
+    },
+    {
+      label: 'Master color recognition threshold',
+      valid: rois.every((roi) => roi.minColorSimilarity === undefined || (Number.isFinite(roi.minColorSimilarity) && roi.minColorSimilarity >= 0.4 && roi.minColorSimilarity <= 0.98)),
+      detail: 'Configured per ROI from OK/NG reference images',
+      error: 'Master color similarity must be between 40% and 98%.',
+    },
+    {
+      label: 'RGB color contribution',
+      valid: rois.every((roi) => roi.colorWeight === undefined || (Number.isFinite(roi.colorWeight) && roi.colorWeight >= 0.05 && roi.colorWeight <= 0.4)),
+      detail: 'Configured per ROI',
+      error: 'RGB color weight must be between 5% and 40%.',
     },
   ];
 }
