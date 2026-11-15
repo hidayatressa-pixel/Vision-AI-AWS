@@ -372,21 +372,23 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
                         {/* Revision Action Buttons */}
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => void handleEditRevision(currentMaster, rev)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-medium"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                            <span>Edit / Calibrate</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleCloneRevision(currentMaster, rev)}
-                            title="Clone Revision for Engineering Change"
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
+                          {(role === 'ENGINEER' || role === 'ADMIN') && rev.status !== 'PENDING_APPROVAL' && (
+                            <button
+                              onClick={() => void handleEditRevision(currentMaster, rev)}
+                              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-slate-700"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" /><span>Edit / Calibrate</span>
+                            </button>
+                          )}
+                          {(role === 'ENGINEER' || role === 'ADMIN') && (
+                            <button
+                              onClick={() => void handleCloneRevision(currentMaster, rev)}
+                              title="Clone Revision for Engineering Change"
+                              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-700"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          )}
 
                           {(role === 'ENGINEER' || role === 'ADMIN') && (rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
                             <button onClick={() => void handleSubmitRevision(currentMaster, rev)} className="rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs font-semibold text-cyan-200">Submit</button>
