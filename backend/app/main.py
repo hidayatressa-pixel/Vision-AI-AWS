@@ -25,6 +25,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
+DEFAULT_STATION_ID = os.getenv("VISION_DEFAULT_STATION_ID", "VISION-AI-AWS").strip() or "VISION-AI-AWS"
 ALLOWED_EMAILS = {
     value.strip().lower()
     for value in os.getenv("VISION_ALLOWED_USER_EMAILS", "").split(",")
@@ -157,7 +158,42 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
         ).fetchone()
         if not row or not row["is_active"]:
             raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
+        if row["role"] == "OPERATOR":
+            connection.execute(
+                """insert into public.vision_user_station_access
+                   (user_id,station_id,is_active,assigned_by)
+                   values (%s,%s,true,%s)
+                   on conflict (user_id,station_id) do nothing""",
+                (user_id, DEFAULT_STATION_ID, user_id),
+            )
     return str(row["role"])
+
+
+def require_station_access(user: dict[str, Any], station_id: str, db: ConnectionPool) -> None:
+    if not station_id or len(station_id) > 120:
+        raise HTTPException(status_code=422, detail="A valid station ID is required")
+    role = str(user.get("vision_role") or resolve_user_role(user, db))
+    if role in {"ENGINEER", "APPROVER", "ADMIN"}:
+        return
+    with db.connection() as connection:
+        row = connection.execute(
+            "select is_active from public.vision_user_station_access where user_id=%s and station_id=%s",
+            (str(user.get("id")), station_id),
+        ).fetchone()
+    if not row or not row["is_active"]:
+        raise HTTPException(status_code=403, detail="This user is not assigned to the requested production station")
+
+
+def get_user_station_ids(user: dict[str, Any], db: ConnectionPool) -> list[str] | None:
+    role = str(user.get("vision_role") or resolve_user_role(user, db))
+    if role != "OPERATOR":
+        return None
+    with db.connection() as connection:
+        rows = connection.execute(
+            "select station_id from public.vision_user_station_access where user_id=%s and is_active=true order by station_id",
+            (str(user.get("id")),),
+        ).fetchall()
+    return [row["station_id"] for row in rows]
 
 
 def require_active_user(
@@ -283,6 +319,10 @@ class RevisionDecisionRequest(BaseModel):
 
 class StationAssignmentRequest(BaseModel):
     station_id: str = Field(min_length=1, max_length=120)
+
+
+class UserStationAccessRequest(BaseModel):
+    station_ids: list[str] = Field(default_factory=list)
 
 
 @app.get("/health")
