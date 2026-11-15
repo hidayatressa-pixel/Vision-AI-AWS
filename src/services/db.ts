@@ -70,7 +70,7 @@ class DatabaseService {
   private async signedAssetUrl(path?: string): Promise<string> {
     if (!path) return '';
     if (!supabase) throw new Error('Supabase Storage is not configured.');
-    const { data, error } = await supabase.storage.from(MASTER_BUCKET).createSignedUrl(path, 3600);
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).createSignedUrl(path, 86400);
     if (error || !data?.signedUrl) throw new Error('Unable to read approved Master asset: ' + (error?.message || 'signed URL unavailable'));
     return data.signedUrl;
   }
@@ -250,9 +250,19 @@ class DatabaseService {
     const changed = master.revisions.filter((revision) =>
       !previous || !previous.revisions.some((old) => old.id === revision.id && JSON.stringify(old) === JSON.stringify(revision))
     );
-    const revisionsToSave = changed.length
-      ? changed
-      : [master.revisions[master.revisions.length - 1]].filter(Boolean);
+    if (changed.length === 0 && this.knownMasterIds.has(master.id)) {
+      await this.requestEndpoint('/v1/masters/' + encodeURIComponent(master.id), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          product_code: master.productCode,
+          product_name: master.productName,
+          description: master.description,
+        }),
+      });
+      this.masterCache.set(master.id, master);
+      return;
+    }
+    const revisionsToSave = changed;
 
     let isNew = !this.knownMasterIds.has(master.id);
     for (const revision of revisionsToSave) {
