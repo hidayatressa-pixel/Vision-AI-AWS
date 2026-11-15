@@ -248,7 +248,7 @@ class DatabaseService {
   public async saveMaster(master: MasterProduct): Promise<void> {
     const previous = this.masterCache.get(master.id);
     const changed = master.revisions.filter((revision) =>
-      !previous || !previous.revisions.some((old) => old.id === revision.id && old.updatedAt === revision.updatedAt)
+      !previous || !previous.revisions.some((old) => old.id === revision.id && JSON.stringify(old) === JSON.stringify(revision))
     );
     const revisionsToSave = changed.length
       ? changed
