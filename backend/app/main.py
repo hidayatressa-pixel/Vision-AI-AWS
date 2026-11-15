@@ -135,6 +135,14 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
                 (user_id, email),
             )
             return "ADMIN"
+        row = connection.execute(
+            "select role, is_active from public.vision_user_roles where user_id = %s",
+            (user_id,),
+        ).fetchone()
+        if row:
+            if not row["is_active"]:
+                raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
+            return str(row["role"])
         connection.execute(
             """
             insert into public.vision_user_roles (user_id, email, role, is_active)
@@ -144,10 +152,12 @@ def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
             (user_id, email),
         )
         row = connection.execute(
-            "select role from public.vision_user_roles where user_id = %s and is_active = true",
+            "select role, is_active from public.vision_user_roles where user_id = %s",
             (user_id,),
         ).fetchone()
-    return str(row["role"]) if row else "OPERATOR"
+        if not row or not row["is_active"]:
+            raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
+    return str(row["role"])
 
 
 def require_roles(*allowed_roles: str):
