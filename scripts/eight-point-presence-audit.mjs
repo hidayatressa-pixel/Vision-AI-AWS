@@ -40,13 +40,18 @@ function resultFor(roi, evidence) {
 
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: 'data:image/png;base64,ok' },
-  { id: 'ng', label: 'NG', kind: 'NG', imageUrl: '' },
-]), true, 'a blank NG slot must not block an eight-point presence Master');
+  { id: 'ng', label: 'NG empty slot', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
+]), true, 'both positive screw and validated empty-slot references are required');
+assert.equal(engine.validateEightPointReferenceImages([
+  { id: 'ok', label: 'OK', kind: 'OK', imageUrl: 'data:image/png;base64,ok' },
+  { id: 'ng', label: 'NG empty slot', kind: 'NG', imageUrl: '' },
+]), false, 'a blank NG reference must block the Master');
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ng', label: 'NG', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
 ]), false, 'an NG-only reference set cannot replace the positive screw Master');
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: '' },
+  { id: 'ng', label: 'NG', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
 ]), false, 'an empty OK reference must block the Master');
 
 const emptyPatch = new Float32Array(64 * 64).fill(80);
