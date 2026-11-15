@@ -164,7 +164,7 @@ function VisionApp() {
     const baseRevision = activeRevision || masters[0]?.revisions[0] || SEED_PRODUCT_A.revisions[0];
     const newProduct: MasterProduct = {
       id: productId,
-      productCode: `PRD-NEW-${String(newIdx).padStart(3, '0')}`,
+      productCode: `PRD-NEW-${Date.now()}`,
       productName: `New Product ${newIdx}`,
       description: 'New independent inspection profile. Upload a master image, define ROIs, and add product-specific OK/NG references.',
       activeRevisionId: revisionId,
