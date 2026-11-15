@@ -215,6 +215,7 @@ class InspectionHistoryRecord(FlexibleModel):
     extra_objects: list[Any] = Field(default_factory=list)
     thumbnail_base64: str | None = None
     device_id: str
+    station_id: str = "VISION-AI-AWS"
     operator_id: str | None = None
     sequence_number: int | None = None
     plc_interlock_state: str | None = None
@@ -783,6 +784,16 @@ def save_inspection_history(
     db: ConnectionPool = Depends(get_pool),
 ):
     data = payload.model_dump()
+    with db.connection() as connection:
+        assignment = connection.execute(
+            """
+            select 1 from public.vision_station_master_assignments
+            where station_id=%s and master_id=%s and revision_id=%s
+            """,
+            (data.get("station_id") or "VISION-AI-AWS", data["master_id"], data["master_revision_id"]),
+        ).fetchone()
+    if not assignment:
+        raise HTTPException(status_code=409, detail="Inspection history rejected: Master revision is not the approved revision assigned to this station")
     json_columns = {"defects", "metrics", "alignment", "roi_results", "extra_objects", "plc_timeline"}
     for column in json_columns:
         if data.get(column) is not None:
@@ -794,7 +805,7 @@ def save_inspection_history(
         "expected_count", "detected_count", "defects", "primary_reason", "metrics",
         "alignment", "roi_results", "extra_objects", "thumbnail_base64", "device_id",
         "operator_id", "sequence_number", "plc_interlock_state", "plc_comm_latency_ms",
-        "plc_timeline",
+        "plc_timeline", "station_id",
     ]
     values = [data.get(column) for column in columns]
     placeholders = ", ".join(["%s"] * len(columns))
@@ -807,7 +818,7 @@ def save_inspection_history(
             f"""
             insert into public.inspection_history ({", ".join(columns)})
             values ({placeholders})
-            on conflict (id) do update set {updates}
+            on conflict (id) do nothing
             """,
             values,
         )
