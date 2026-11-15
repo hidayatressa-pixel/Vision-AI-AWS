@@ -213,54 +213,89 @@ class DatabaseService {
   }
 
   public async getAllMasters(): Promise<MasterProduct[]> {
-    try {
-      const stored = await this.runMasterTransaction<MasterProduct[]>('readonly', (store) => store.getAll());
-      this.masterCache = new Map(stored.map((master) => [master.id, master]));
-      // One-time migration for existing browser profiles which used localStorage.
-      if (stored.length === 0) {
-        const legacy = this.readFallbackMasters();
-        if (legacy.length > 0) {
-          for (const master of legacy) await this.runMasterTransaction<IDBValidKey>('readwrite', (store) => store.put(master));
-          this.masterCache = new Map(legacy.map((master) => [master.id, master]));
+    const query = '?station_id=' + encodeURIComponent(VISION_STATION_ID);
+    let cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
+    if (cloud.length === 0 && !this.migrationAttempted) {
+      const role = await this.getCurrentUserRole();
+      if (role === 'ENGINEER' || role === 'ADMIN') {
+        const legacy = await this.getLegacyLocalMasters();
+        if (legacy.length) {
+          this.migrationAttempted = true;
+          for (const master of legacy) {
+            for (const revision of master.revisions) {
+              await this.saveMaster({ ...master, revisions: [revision] });
+            }
+          }
+          cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
         }
       }
-      return Array.from(this.masterCache.values());
-    } catch {
-      if (this.masterCache.size === 0) {
-        this.masterCache = new Map(this.readFallbackMasters().map((master) => [master.id, master]));
-      }
-      return Array.from(this.masterCache.values());
     }
+    const materialized = await Promise.all(cloud.map((master) => this.materializeMaster(master)));
+    this.masterCache = new Map(materialized.map((master) => [master.id, master]));
+    this.knownMasterIds = new Set(materialized.map((master) => master.id));
+    return materialized;
   }
 
   public async getMasterById(id: string): Promise<MasterProduct | null> {
-    if (this.masterCache.has(id)) return this.masterCache.get(id) || null;
-    try {
-      const master = await this.runMasterTransaction<MasterProduct | undefined>('readonly', (store) => store.get(id));
-      if (master) this.masterCache.set(id, master);
-      return master || null;
-    } catch {
-      if (this.masterCache.size === 0) this.masterCache = new Map(this.readFallbackMasters().map((item) => [item.id, item]));
-      return this.masterCache.get(id) || null;
-    }
+    const all = await this.getAllMasters();
+    return all.find((master) => master.id === id) || null;
   }
 
-  public async deleteMaster(id: string): Promise<void> {
-    this.masterCache.delete(id);
-    try {
-      await this.runMasterTransaction<undefined>('readwrite', (store) => store.delete(id));
-    } catch {
-      this.writeFallbackMasters();
-    }
+  public async deleteMaster(_id: string): Promise<void> {
+    throw new Error('Master deletion is disabled to preserve revision and inspection history.');
   }
 
   public async saveMaster(master: MasterProduct): Promise<void> {
-    this.masterCache.set(master.id, master);
-    try {
-      await this.runMasterTransaction<IDBValidKey>('readwrite', (store) => store.put(master));
-    } catch {
-      this.writeFallbackMasters();
+    const previous = this.masterCache.get(master.id);
+    const changed = master.revisions.filter((revision) =>
+      !previous || !previous.revisions.some((old) => old.id === revision.id && old.updatedAt === revision.updatedAt)
+    );
+    const revisionsToSave = changed.length
+      ? changed
+      : [master.revisions[master.revisions.length - 1]].filter(Boolean);
+
+    let isNew = !this.knownMasterIds.has(master.id);
+    for (const revision of revisionsToSave) {
+      const masterImagePath = await this.uploadMasterImage(
+        master.id, revision.id, 'master-image', revision.masterImageUrl, revision.masterImagePath
+      );
+      const referenceImages = await Promise.all((revision.referenceImages || []).map(async (reference, index) => ({
+        ...reference,
+        storagePath: await this.uploadMasterImage(
+          master.id, revision.id, 'reference-' + this.safePathSegment(reference.id || String(index + 1)),
+          reference.imageUrl, reference.storagePath
+        ),
+        imageUrl: '',
+      })));
+      const storedRevision = {
+        ...revision,
+        masterImagePath,
+        masterImageUrl: '',
+        referenceImages,
+        status: 'DRAFT' as const,
+      };
+      const body = JSON.stringify({
+        master: {
+          id: master.id, productCode: master.productCode, productName: master.productName,
+          description: master.description, isActive: master.isActive,
+        },
+        revision: storedRevision,
+      });
+      if (isNew) {
+        await this.requestEndpoint('/v1/masters', { method: 'POST', body });
+        isNew = false;
+        this.knownMasterIds.add(master.id);
+      } else {
+        await this.requestEndpoint(
+          '/v1/masters/' + encodeURIComponent(master.id) + '/revisions/' + encodeURIComponent(revision.id),
+          { method: 'PUT', body }
+        );
+      }
     }
+    this.masterCache.set(master.id, {
+      ...master,
+      revisions: master.revisions.map((revision) => ({ ...revision, status: revision.status || 'DRAFT' })),
+    });
   }
 
   // --- Cloud Inspection History ---
