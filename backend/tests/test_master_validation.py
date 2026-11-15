@@ -66,6 +66,7 @@ def valid_eight_point_revision():
         (0.40, 0.80), (0.60, 0.80),
     ]
     payload["expectedObjectCount"] = 8
+    payload["inspectionProfile"] = "EIGHT_POINT_PRESENCE"
     payload["inspectionROIs"] = []
     layouts = {}
     for index, (x, y) in enumerate(positions, start=1):
@@ -177,6 +178,13 @@ class MasterRevisionValidationTests(unittest.TestCase):
         payload["inspectionROIs"][1]["x"] = payload["inspectionROIs"][0]["x"]
         errors = _validate_master_revision(payload)
         self.assertTrue(any("must not overlap" in error for error in errors))
+
+    def test_explicit_eight_point_profile_rejects_missing_roi_instead_of_falling_back(self):
+        payload = valid_eight_point_revision()
+        payload["inspectionROIs"].pop()
+        payload["expectedObjectCount"] = 7
+        errors = _validate_master_revision(payload)
+        self.assertTrue(any("requires exactly eight" in error for error in errors))
 
 
 if __name__ == "__main__":
