@@ -181,8 +181,10 @@ def require_station_access(user: dict[str, Any], station_id: str, db: Connection
     if not station_id or len(station_id) > 120:
         raise HTTPException(status_code=422, detail="A valid station ID is required")
     role = str(user.get("vision_role") or resolve_user_role(user, db))
-    if role in {"ENGINEER", "APPROVER", "ADMIN"}:
+    if role in {"ENGINEER", "ADMIN"}:
         return
+    if role == "APPROVER":
+        raise HTTPException(status_code=403, detail="Approvers can review Master revisions but cannot operate production stations")
     with db.connection() as connection:
         row = connection.execute(
             "select is_active from public.vision_user_station_access where user_id=%s and station_id=%s",
@@ -194,8 +196,10 @@ def require_station_access(user: dict[str, Any], station_id: str, db: Connection
 
 def get_user_station_ids(user: dict[str, Any], db: ConnectionPool) -> list[str] | None:
     role = str(user.get("vision_role") or resolve_user_role(user, db))
-    if role != "OPERATOR":
+    if role in {"ENGINEER", "ADMIN"}:
         return None
+    if role == "APPROVER":
+        return []
     with db.connection() as connection:
         rows = connection.execute(
             "select station_id from public.vision_user_station_access where user_id=%s and is_active=true order by station_id",
@@ -682,7 +686,8 @@ def list_masters(
     user: dict[str, Any] = Depends(require_user), db: ConnectionPool = Depends(get_pool),
 ):
     role = resolve_user_role(user, db)
-    require_station_access(user, station_id, db)
+    if role != "APPROVER":
+        require_station_access(user, station_id, db)
     with db.connection() as connection:
         rows = connection.execute(
             """
