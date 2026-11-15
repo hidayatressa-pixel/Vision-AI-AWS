@@ -12,6 +12,7 @@ export interface VisionCloudEvent {
   stationId?: string;
   masterId?: string;
   masterRevisionId?: string;
+  masterRevisionChecksum?: string;
   inspectionId?: string;
   timestamp: string;
   productCode?: string;
@@ -76,6 +77,7 @@ export function sendInspectionResult(params: {
   jig: string;
   masterId: string;
   masterRevisionId: string;
+  masterRevisionChecksum: string;
   inspectionId: string;
   productCode: string;
   revisionCode: string;
@@ -99,6 +101,7 @@ export function sendInspectionResult(params: {
     stationId: VISION_STATION_ID,
     masterId: params.masterId,
     masterRevisionId: params.masterRevisionId,
+    masterRevisionChecksum: params.masterRevisionChecksum,
     inspectionId: params.inspectionId,
     timestamp: new Date().toISOString(),
     productCode: params.productCode,
@@ -131,6 +134,7 @@ export interface VisionSessionContext {
   revisionCode: string;
   masterId: string;
   masterRevisionId: string;
+  masterRevisionChecksum: string;
 }
 
 export async function activateVisionSession(context: VisionSessionContext): Promise<void> {
