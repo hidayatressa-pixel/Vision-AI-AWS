@@ -756,6 +756,10 @@ def assign_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "APPROVED":
             raise HTTPException(status_code=409, detail="Only approved revisions can be assigned to production")
+        previous = connection.execute(
+            "select master_id, revision_id from public.vision_station_master_assignments where station_id=%s",
+            (payload.station_id,),
+        ).fetchone()
         connection.execute(
             """insert into public.vision_station_master_assignments
                (station_id,master_id,revision_id,activated_by,activated_at)
@@ -765,7 +769,13 @@ def assign_master_revision(
             (payload.station_id, master_id, revision_id, actor),
         )
         _audit(connection, master_id, revision_id, actor, "REVISION_ASSIGNED_TO_STATION",
-               {"station_id": payload.station_id}, payload.station_id)
+               {
+                   "station_id": payload.station_id,
+                   "previous_master_id": previous["master_id"] if previous else None,
+                   "previous_revision_id": previous["revision_id"] if previous else None,
+                   "new_master_id": master_id,
+                   "new_revision_id": revision_id,
+               }, payload.station_id)
     return {"assigned": True, "station_id": payload.station_id, "master_id": master_id, "revision_id": revision_id}
 
 
