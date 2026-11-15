@@ -299,6 +299,10 @@ function VisionApp() {
         setSystemMessageLevel('warning');
         return;
       }
+      // Refresh temporary signed Storage URLs for this exact, unchanged revision.
+      setActiveMaster(assignedMaster);
+      setActiveRevision(assignedRevision);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       setSystemMessage('INITIALIZING INSPECTION SESSION...');
       setSystemMessageLevel('info');
       const sessionContext = {
