@@ -301,29 +301,26 @@ function VisionApp() {
       }
       setSystemMessage('INITIALIZING INSPECTION SESSION...');
       setSystemMessageLevel('info');
+      const sessionContext = {
+        productCode: activeMaster?.productCode || 'UNKNOWN',
+        revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
+        masterId: activeMaster?.id || '',
+        masterRevisionId: activeRevision?.id || '',
+      };
+      // The backend must confirm the exact approved station assignment before
+      // the local pipeline is allowed to enter Live Inspection.
+      await activateVisionSession(sessionContext);
       const started = await pipeline.startSession();
       if (!started) {
+        void endVisionSession(sessionContext).catch((error) => console.error('[Vision backend session rollback]', error));
         setSystemMessage('SESSION START FAILED — CAMERA FRAME OR BASELINE IS NOT READY');
         setSystemMessageLevel('error');
         return;
       }
       setSessionActive(true);
       localStorage.setItem('vision-ai-session-active', '1');
-      setSystemMessage('INSPECTION SESSION STARTED — CONNECTING TO VISION BACKEND...');
-      setSystemMessageLevel('info');
-      void activateVisionSession({
-        productCode: activeMaster?.productCode || 'UNKNOWN',
-        revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
-        masterId: activeMaster?.id || '',
-        masterRevisionId: activeRevision?.id || '',
-      }).then(() => {
-        setSystemMessage('BACKEND SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
-        setSystemMessageLevel('success');
-      }).catch((error) => {
-        console.error('[Vision backend session activation]', error);
-        setSystemMessage('BACKEND ACTIVATION FAILED — LOCAL INSPECTION IS RUNNING; CLOUD EVENT WAS NOT CONFIRMED');
-        setSystemMessageLevel('warning');
-      });
+      setSystemMessage('APPROVED MASTER CONFIRMED — LIVE INSPECTION SESSION STARTED');
+      setSystemMessageLevel('success');
     } catch (error) {
       console.error('[Inspection session start]', error);
       setSystemMessage('SESSION START FAILED — PLEASE CHECK CAMERA AND TRY AGAIN');
