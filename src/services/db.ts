@@ -112,6 +112,12 @@ class DatabaseService {
     });
   }
 
+  public async assignUserRole(userId: string, email: string, role: 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN'): Promise<void> {
+    await this.requestEndpoint('/v1/admin/users/' + encodeURIComponent(userId) + '/role', {
+      method: 'POST', body: JSON.stringify({ email, role, is_active: true }),
+    });
+  }
+
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
     const token = await getSupabaseAccessToken();
     const method = (init.method || 'GET').toUpperCase();
