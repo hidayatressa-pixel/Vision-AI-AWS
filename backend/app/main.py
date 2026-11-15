@@ -773,20 +773,42 @@ def create_master(
     revision_snapshot.pop("checksum", None)
     checksum = _canonical_checksum(revision_snapshot)
     with db.connection() as connection, connection.transaction():
-        connection.execute(
+        inserted_master = connection.execute(
             """insert into public.vision_masters
                (id,product_code,product_name,description,is_active,created_by,updated_by)
-               values (%s,%s,%s,%s,true,%s,%s)""",
+               values (%s,%s,%s,%s,true,%s,%s)
+               on conflict (id) do nothing
+               returning id""",
             (mid, code, name, str(master.get("description") or ""), actor, actor),
-        )
-        connection.execute(
+        ).fetchone()
+        if not inserted_master:
+            existing_master = connection.execute(
+                "select product_code,created_by from public.vision_masters where id=%s for update",
+                (mid,),
+            ).fetchone()
+            if not existing_master or str(existing_master["created_by"]) != actor or existing_master["product_code"] != code:
+                raise HTTPException(status_code=409, detail="Master ID already exists with different ownership or identity")
+        inserted_revision = connection.execute(
             """insert into public.vision_master_revisions
                (id,master_id,revision_code,revision_note,status,revision_payload,checksum,created_by)
-               values (%s,%s,%s,%s,'DRAFT',%s,%s,%s)""",
+               values (%s,%s,%s,%s,'DRAFT',%s,%s,%s)
+               on conflict (id) do nothing
+               returning id""",
             (rid, mid, str(revision.get("revisionCode") or "REV-01"),
              str(revision.get("revisionNote") or ""), Jsonb(revision_snapshot), checksum, actor),
-        )
-        _audit(connection, mid, rid, actor, "MASTER_CREATED", {"product_code": code})
+        ).fetchone()
+        if not inserted_revision:
+            existing_revision = connection.execute(
+                "select master_id,status,checksum,created_by from public.vision_master_revisions where id=%s for update",
+                (rid,),
+            ).fetchone()
+            if (not existing_revision or str(existing_revision["master_id"]) != mid
+                    or str(existing_revision["created_by"]) != actor
+                    or existing_revision["status"] != "DRAFT"
+                    or existing_revision["checksum"] != checksum):
+                raise HTTPException(status_code=409, detail="Revision ID already exists with different content or state")
+        if inserted_master or inserted_revision:
+            _audit(connection, mid, rid, actor, "MASTER_CREATED", {"product_code": code})
     return {"created": True, "master_id": mid, "revision_id": rid, "status": "DRAFT", "checksum": checksum}
 
 
