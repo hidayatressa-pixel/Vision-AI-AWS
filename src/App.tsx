@@ -323,6 +323,7 @@ function VisionApp() {
         revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
         masterId: activeMaster?.id || '',
         masterRevisionId: activeRevision?.id || '',
+        masterRevisionChecksum: activeRevision?.checksum || '',
       };
       // The backend must confirm the exact approved station assignment before
       // the local pipeline is allowed to enter Live Inspection.
