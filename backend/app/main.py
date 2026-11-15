@@ -1004,7 +1004,7 @@ def save_inspection_history(
 
     columns = [
         "id", "timestamp", "product_id", "product_code", "product_name",
-        "master_id", "master_revision_id", "master_revision_code", "judgement",
+        "master_id", "master_revision_id", "master_revision_code", "master_revision_checksum", "judgement",
         "expected_count", "detected_count", "defects", "primary_reason", "metrics",
         "alignment", "roi_results", "extra_objects", "thumbnail_base64", "device_id",
         "operator_id", "sequence_number", "plc_interlock_state", "plc_comm_latency_ms",
