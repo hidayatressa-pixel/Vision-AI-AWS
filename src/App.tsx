@@ -279,7 +279,7 @@ function VisionApp() {
         setSystemMessage('BACKEND SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
         setSystemMessageLevel('success');
       }).catch((error) => {
-        console.error('[AWS session activation]', error);
+        console.error('[Vision backend session activation]', error);
         setSystemMessage('BACKEND ACTIVATION FAILED — LOCAL INSPECTION IS RUNNING; CLOUD EVENT WAS NOT CONFIRMED');
         setSystemMessageLevel('warning');
       });
@@ -321,7 +321,7 @@ function VisionApp() {
       productCode: activeMaster?.productCode || 'UNKNOWN',
       revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
     }).catch((error) => {
-      console.error('[AWS session end]', error);
+      console.error('[Vision backend session end]', error);
       setSystemMessage('LIVE INSPECTION ENDED — BACKEND END EVENT COULD NOT BE CONFIRMED');
       setSystemMessageLevel('warning');
     });
@@ -343,12 +343,12 @@ function VisionApp() {
       });
       finalizeEndSession('CONFIGURATION SAVED — LIVE INSPECTION SESSION ENDED', 'success');
       void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
-        console.error('[AWS session end]', error);
+        console.error('[Vision backend session end]', error);
         setSystemMessage('CONFIGURATION SAVE CONFIRMED — BACKEND END EVENT COULD NOT BE CONFIRMED');
         setSystemMessageLevel('warning');
       });
     } catch (error) {
-      console.error('[AWS configuration save]', error);
+      console.error('[Vision backend configuration save]', error);
       const message = error instanceof Error ? error.message : 'Unknown cloud storage error';
       setSaveError(message);
       setSystemMessage('CONFIGURATION SAVE FAILED — SESSION IS STILL ACTIVE; RETRY OR END WITHOUT SAVING');
