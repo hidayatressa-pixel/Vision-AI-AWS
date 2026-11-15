@@ -1,0 +1,39 @@
+name: Vision-AI migration checks
+
+on:
+  push:
+    branches:
+      - migration/supabase-fastapi-backend
+  pull_request:
+    branches:
+      - migration/supabase-fastapi-backend
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend typecheck and production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build
+
+  backend:
+    name: Backend dependency and syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - run: python -m compileall -q backend/app
