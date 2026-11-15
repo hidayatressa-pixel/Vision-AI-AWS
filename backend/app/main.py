@@ -292,7 +292,7 @@ class InspectionHistoryRecord(FlexibleModel):
     extra_objects: list[Any] = Field(default_factory=list)
     thumbnail_base64: str | None = None
     device_id: str
-    station_id: str = "VISION-AI-AWS"
+    station_id: str = DEFAULT_STATION_ID
     operator_id: str | None = None
     sequence_number: int | None = None
     plc_interlock_state: str | None = None
