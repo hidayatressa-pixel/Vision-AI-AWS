@@ -171,7 +171,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Product List */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-          <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3>
+          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3>{(role === 'ENGINEER' || role === 'ADMIN') && <button type="button" onClick={onCreateNewMaster} className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-cyan-500">+ NEW MASTER</button>}</div>
 
           <div className="space-y-2">
             {masters.map((m) => {
@@ -183,8 +183,8 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                   key={m.id}
                   onClick={() => {
                     setSelectedMasterId(m.id);
-                    const revision = m.revisions.find((r) => r.id === m.activeRevisionId) || m.revisions[0];
-                    if (revision) onSelectMaster(m, revision.id);
+                    const revision = m.revisions.find((r) => r.id === m.activeRevisionId && r.status === 'APPROVED');
+                    if (revision && m.isActive) onSelectMaster(m, revision.id);
                   }}
                   className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                     isSelected
@@ -364,13 +364,14 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                               )}
                             </div>
                             <p className="text-xs text-slate-300 mt-0.5">{rev.revisionNote}</p>
+                            <span className={rev.status === 'APPROVED' ? 'mt-1 inline-flex rounded bg-emerald-950 px-2 py-0.5 text-[9px] font-bold text-emerald-300' : rev.status === 'PENDING_APPROVAL' ? 'mt-1 inline-flex rounded bg-amber-950 px-2 py-0.5 text-[9px] font-bold text-amber-300' : rev.status === 'REJECTED' ? 'mt-1 inline-flex rounded bg-rose-950 px-2 py-0.5 text-[9px] font-bold text-rose-300' : 'mt-1 inline-flex rounded bg-slate-800 px-2 py-0.5 text-[9px] font-bold text-slate-300'}>{rev.status || 'DRAFT'}</span>
                           </div>
                         </div>
 
                         {/* Revision Action Buttons */}
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => onOpenSetupModal(currentMaster, rev)}
+                            onClick={() => void handleEditRevision(currentMaster, rev)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-medium"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -385,13 +386,18 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                             <Copy className="w-3.5 h-3.5" />
                           </button>
 
-                          {!isActiveRev && (
-                            <button
-                              onClick={() => handleActivateRevision(currentMaster, rev.id)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Activate</span>
+                          {(role === 'ENGINEER' || role === 'ADMIN') && (rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
+                            <button onClick={() => void handleSubmitRevision(currentMaster, rev)} className="rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs font-semibold text-cyan-200">Submit</button>
+                          )}
+                          {(role === 'APPROVER' || role === 'ADMIN') && rev.status === 'PENDING_APPROVAL' && (
+                            <>
+                              <button onClick={() => void handleApproveRevision(currentMaster, rev)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">Approve</button>
+                              <button onClick={() => void handleRejectRevision(currentMaster, rev)} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200">Reject</button>
+                            </>
+                          )}
+                          {(role === 'ENGINEER' || role === 'ADMIN') && !isActiveRev && rev.status === 'APPROVED' && (
+                            <button onClick={() => void handleActivateRevision(currentMaster, rev.id)} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
+                              <Check className="h-3.5 w-3.5" /><span>Assign to station</span>
                             </button>
                           )}
                         </div>
