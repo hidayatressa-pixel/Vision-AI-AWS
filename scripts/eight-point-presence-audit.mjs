@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as engine from '../src/vision/eightPointPresenceEngine.ts';
+import { confirmsEightPointAbsence } from '../src/vision/roiFeatureCore.js';
 
 const slotCenters = [
   [0.18, 0.25], [0.39, 0.25], [0.61, 0.25], [0.82, 0.25],
@@ -47,6 +48,15 @@ assert.equal(engine.validateEightPointReferenceImages([
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: '' },
 ]), false, 'an empty OK reference must block the Master');
+
+assert.equal(confirmsEightPointAbsence(false, 0.82, true, 0.05), true,
+  'a clear empty slot that strongly differs from the positive screw shape must confirm absence');
+assert.equal(confirmsEightPointAbsence(false, 0.35, true, 0.05), false,
+  'weak/blurred empty-slot evidence must remain uncertain');
+assert.equal(confirmsEightPointAbsence(false, 0.82, false, 0.05), false,
+  'absence cannot be confirmed from an invalid positive reference');
+assert.equal(confirmsEightPointAbsence(false, 0.82, true, 0.7), false,
+  'a live patch still similar to the positive screw reference must not be called missing');
 
 assert.equal(engine.isEightPointPresenceCandidate(rois), true);
 assert.deepEqual(engine.validateEightPointPresenceLayout(rois), []);
