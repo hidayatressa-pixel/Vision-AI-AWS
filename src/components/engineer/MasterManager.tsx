@@ -6,10 +6,12 @@
 import React, { useState } from 'react';
 import { Layers, Plus, Check, Edit3, Copy, ShieldCheck, Images } from 'lucide-react';
 import { MasterProduct, MasterRevision } from '../../types/master';
+import { UserRole } from '../Navbar';
 import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
 interface MasterManagerProps {
+  role: UserRole;
   masters: MasterProduct[];
   activeMaster: MasterProduct | null;
   activeRevision: MasterRevision | null;
@@ -22,6 +24,7 @@ interface MasterManagerProps {
 }
 
 export const MasterManager: React.FC<MasterManagerProps> = ({
+  role,
   masters,
   activeMaster,
   activeRevision,
@@ -47,27 +50,61 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
   const handleActivateRevision = async (master: MasterProduct, revisionId: string) => {
     const candidate = master.revisions.find((revision) => revision.id === revisionId);
-    if (!candidate) return;
-
-    // A revision must pass the exact same runtime Master checks before it can
-    // replace the currently active production configuration.
+    if (!candidate || candidate.status !== 'APPROVED') return;
     const failedChecks = getMasterValidationChecks(candidate).filter((check) => !check.valid);
     if (failedChecks.length > 0) {
-      window.alert(
-        'Revision activation blocked. Fix these Master checks first: ' +
-        failedChecks.map((check) => check.label).join(', ')
-      );
+      window.alert('Activation blocked. Master validation failed: ' + failedChecks.map((check) => check.label).join(', '));
       return;
     }
+    try {
+      await dbService.assignMasterRevision(master.id, revisionId);
+      const updated = { ...master, activeRevisionId: revisionId, isActive: true, updatedAt: new Date().toISOString() };
+      await onRefreshMasters();
+      onSelectMaster(updated, revisionId);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Master assignment failed.');
+    }
+  };
 
-    const updated: MasterProduct = {
-      ...master,
-      activeRevisionId: revisionId,
-      updatedAt: new Date().toISOString(),
-    };
-    await dbService.saveMaster(updated);
-    onRefreshMasters();
-    onSelectMaster(updated, revisionId);
+  const handleEditRevision = async (master: MasterProduct, revision: MasterRevision) => {
+    if (revision.status === 'PENDING_APPROVAL') {
+      window.alert('This revision is locked while approval is pending.');
+      return;
+    }
+    if (revision.status === 'APPROVED') {
+      await handleCloneRevision(master, revision);
+      return;
+    }
+    onOpenSetupModal(master, revision);
+  };
+
+  const handleSubmitRevision = async (master: MasterProduct, revision: MasterRevision) => {
+    try {
+      await dbService.submitMasterRevision(master.id, revision.id);
+      await onRefreshMasters();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Revision submission failed.');
+    }
+  };
+
+  const handleApproveRevision = async (master: MasterProduct, revision: MasterRevision) => {
+    try {
+      await dbService.approveMasterRevision(master.id, revision.id);
+      await onRefreshMasters();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Revision approval failed.');
+    }
+  };
+
+  const handleRejectRevision = async (master: MasterProduct, revision: MasterRevision) => {
+    const reason = window.prompt('Enter the rejection reason (required):')?.trim();
+    if (!reason) return;
+    try {
+      await dbService.rejectMasterRevision(master.id, revision.id, reason);
+      await onRefreshMasters();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Revision rejection failed.');
+    }
   };
 
   const handleCloneRevision = async (master: MasterProduct, rev: MasterRevision) => {
@@ -83,6 +120,11 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       createdBy: 'Quality Engineer',
+      status: 'DRAFT',
+      checksum: undefined,
+      approvedBy: null,
+      submittedAt: null,
+      approvedAt: null,
     };
 
     // A clone is an engineering draft, never a production activation.
