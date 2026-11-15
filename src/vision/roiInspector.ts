@@ -419,7 +419,7 @@ export class ROIInspector {
         if (!patch || !referenceColor) return null;
         const colorScore = compareColorSignatures(referenceColor, liveColor);
         const compared = comparePatches(patch, current, roi, colorScore);
-        return { reference, colorScore, ...compared };
+        return { reference, ...compared };
       }));
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
