@@ -304,7 +304,8 @@ export function useInspectionPipeline({
             revision.masterWidth,
             revision.masterHeight,
             revision.referenceImages || [],
-            candidateFrame
+            candidateFrame,
+            revision.inspectionProfile
           );
           roiResults = inspection.roiResults;
           extraObjects = inspection.extraObjects;
