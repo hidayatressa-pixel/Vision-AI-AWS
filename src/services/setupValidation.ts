@@ -23,8 +23,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
   const references = revision.referenceImages || [];
   const rois = revision.inspectionROIs || [];
   const expectedObjectCount = rois.filter((roi) => roi.expectedObjectPresence !== false).length;
-  const eightPointMode = isEightPointPresenceCandidate(rois);
-  const eightPointErrors = validateEightPointPresenceLayout(rois);
+  const eightPointMode = isEightPointPresenceCandidate(rois, revision.inspectionProfile);
+  const eightPointErrors = validateEightPointPresenceLayout(rois, revision.inspectionProfile);
   const anchors = revision.anchors || [];
   const anchorIdsUnique = new Set(anchors.map((anchor) => anchor.id)).size === anchors.length &&
     anchors.every((anchor) => Boolean(anchor.id?.trim()));
@@ -78,6 +78,8 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       Number.isFinite(roi.toleranceRadius) && roi.toleranceRadius >= 0.005 && roi.toleranceRadius <= 0.5 &&
       (roi.expectedObjectPresence === undefined || typeof roi.expectedObjectPresence === 'boolean') &&
       (roi.minClassMargin === undefined || (Number.isFinite(roi.minClassMargin) && roi.minClassMargin >= 0.02 && roi.minClassMargin <= 0.3)) &&
+      (roi.minColorSimilarity === undefined || (Number.isFinite(roi.minColorSimilarity) && roi.minColorSimilarity >= 0.4 && roi.minColorSimilarity <= 0.98)) &&
+      (roi.colorWeight === undefined || (Number.isFinite(roi.colorWeight) && roi.colorWeight >= 0.05 && roi.colorWeight <= 0.4)) &&
       (roi.sizeToleranceRatio === undefined || (Number.isFinite(roi.sizeToleranceRatio) && roi.sizeToleranceRatio >= 0.05 && roi.sizeToleranceRatio <= 1)) &&
       (roi.shapeToleranceRatio === undefined || (Number.isFinite(roi.shapeToleranceRatio) && roi.shapeToleranceRatio >= 0.05 && roi.shapeToleranceRatio <= 0.4)) &&
       ['screw', 'connector', 'clip', 'label', 'component'].includes(roi.objectType) &&
@@ -169,10 +171,10 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       label: 'OK/NG reference images',
       valid: allReferencesUploaded,
       detail: eightPointMode
-        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} positive OK reference(s) · NG references optional for presence-only mode`
+        ? `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG reference(s) for positive and empty-area verification`
         : `${okReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} OK · ${ngReferences.filter((item) => Boolean(item.imageUrl?.trim())).length} NG`,
       error: eightPointMode
-        ? 'Add at least one uploaded OK reference showing the screw present, with a valid ROI crop.'
+        ? 'Add at least one uploaded OK reference showing the screw present and one uploaded NG reference showing the validated empty slot, with valid ROI crops.'
         : 'Add at least one uploaded OK reference and one uploaded NG reference. Add more examples when needed.',
     },
     {
@@ -216,6 +218,18 @@ export function getMasterValidationChecks(revision: MasterRevision): SetupValida
       valid: rois.every((roi) => Number.isFinite(roi.minConfidence) && roi.minConfidence >= 0.5 && roi.minConfidence <= 0.98),
       detail: 'Configured per ROI',
       error: 'ROI similarity threshold must be between 50% and 98%.',
+    },
+    {
+      label: 'Master color recognition threshold',
+      valid: rois.every((roi) => roi.minColorSimilarity === undefined || (Number.isFinite(roi.minColorSimilarity) && roi.minColorSimilarity >= 0.4 && roi.minColorSimilarity <= 0.98)),
+      detail: 'Configured per ROI from OK/NG reference images',
+      error: 'Master color similarity must be between 40% and 98%.',
+    },
+    {
+      label: 'RGB color contribution',
+      valid: rois.every((roi) => roi.colorWeight === undefined || (Number.isFinite(roi.colorWeight) && roi.colorWeight >= 0.05 && roi.colorWeight <= 0.4)),
+      detail: 'Configured per ROI',
+      error: 'RGB color weight must be between 5% and 40%.',
     },
   ];
 }

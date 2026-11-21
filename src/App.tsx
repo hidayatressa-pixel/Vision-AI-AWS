@@ -17,7 +17,7 @@ import { useCamera } from './hooks/useCamera';
 import { useInspectionPipeline } from './hooks/useInspectionPipeline';
 import { soundService } from './services/audio';
 import { dbService } from './services/db';
-import { initSeedDataIfEmpty, SEED_PRODUCT_A } from './services/sampleData';
+import { SEED_PRODUCT_A } from './services/sampleData';
 import { MasterProduct, MasterRevision } from './types/master';
 import { CameraSourceMode } from './types/device';
 import { createRemoteCameraSession } from './services/remoteCamera';
@@ -38,7 +38,7 @@ function VisionApp() {
   }
   const [entryScreen, setEntryScreen] = useState<'welcome' | 'app'>('welcome');
   const [activeTab, setActiveTab] = useState<ActiveTab>('CAMERA_SETUP');
-  const [role] = useState<UserRole>('OPERATOR');
+  const [role, setRole] = useState<UserRole>('OPERATOR');
   const [isMuted, setIsMuted] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [masters, setMasters] = useState<MasterProduct[]>([]);
@@ -106,14 +106,25 @@ function VisionApp() {
     : '';
 
   const loadMasters = async () => {
-    await initSeedDataIfEmpty();
-    const allMasters = await dbService.getAllMasters();
+    const [allMasters, currentRole] = await Promise.all([
+      dbService.getAllMasters(),
+      dbService.getCurrentUserRole(),
+    ]);
+    setRole(currentRole);
     setMasters(allMasters);
-    if (allMasters.length > 0) {
-      const current = activeMaster ? allMasters.find((m) => m.id === activeMaster.id) || allMasters[0] : allMasters[0];
-      setActiveMaster(current);
-      setActiveRevision(current.revisions.find((r) => r.id === current.activeRevisionId) || current.revisions[0]);
+    const assigned = allMasters.find((master) => master.isActive && master.activeRevisionId);
+    if (assigned) {
+      const approvedRevision = assigned.revisions.find((revision) =>
+        revision.id === assigned.activeRevisionId && revision.status === 'APPROVED'
+      ) || null;
+      if (approvedRevision) {
+        setActiveMaster(assigned);
+        setActiveRevision(approvedRevision);
+        return;
+      }
     }
+    setActiveMaster(null);
+    setActiveRevision(null);
   };
 
   useEffect(() => {
@@ -129,9 +140,13 @@ function VisionApp() {
       return;
     }
 
-    setActiveMaster(master);
     const revId = revisionId || master.activeRevisionId;
-    setActiveRevision(master.revisions.find((r) => r.id === revId) || master.revisions[0]);
+    const assignedRevision = master.revisions.find((revision) =>
+      revision.id === revId && revision.status === 'APPROVED' && master.activeRevisionId === revision.id
+    );
+    if (!assignedRevision || !master.isActive) return;
+    setActiveMaster(master);
+    setActiveRevision(assignedRevision);
     pipeline.resetPipeline();
   };
 
@@ -149,7 +164,7 @@ function VisionApp() {
     const baseRevision = activeRevision || masters[0]?.revisions[0] || SEED_PRODUCT_A.revisions[0];
     const newProduct: MasterProduct = {
       id: productId,
-      productCode: `PRD-NEW-${String(newIdx).padStart(3, '0')}`,
+      productCode: `PRD-NEW-${Date.now()}`,
       productName: `New Product ${newIdx}`,
       description: 'New independent inspection profile. Upload a master image, define ROIs, and add product-specific OK/NG references.',
       activeRevisionId: revisionId,
@@ -163,7 +178,15 @@ function VisionApp() {
         masterId: productId,
         revisionCode: 'REV-01',
         revisionNote: 'New product inspection profile',
+        inspectionProfile: 'STANDARD',
+        status: 'DRAFT',
+        checksum: undefined,
+        approvedBy: null,
+        submittedAt: null,
+        submittedBy: null,
+        approvedAt: null,
         masterImageUrl: '',
+        masterImagePath: undefined,
         masterWidth: 0,
         masterHeight: 0,
         anchors: [],
@@ -176,14 +199,27 @@ function VisionApp() {
         updatedAt: now,
       }],
     };
-    await dbService.saveMaster(newProduct); await loadMasters(); handleSelectMaster(newProduct, revisionId);
+    await dbService.saveMaster(newProduct);
+    await loadMasters();
+    setSetupMaster(newProduct);
+    setSetupRevision(newProduct.revisions[0]);
+    setSetupStep(2);
+    setActiveTab('MASTERS');
+    setIsSetupModalOpen(true);
+  };
+
+  const handleMasterDraftSaved = async () => {
+    await loadMasters();
+    setIsSetupModalOpen(false);
+    setSetupStep(5);
+    setActiveTab('MASTERS');
   };
 
   // Production inspection requires a verified physical or remote camera stream.
   // The virtual simulator is useful for demos but must not satisfy device readiness.
   const cameraReady = camera.cameraState === 'streaming';
   const masterValidationChecks = activeRevision ? getMasterValidationChecks(activeRevision) : [];
-  const masterReady = Boolean(activeMaster && activeRevision) && masterValidationChecks.every((check) => check.valid);
+  const masterReady = Boolean(activeMaster && activeRevision && activeRevision.status === 'APPROVED' && activeMaster.activeRevisionId === activeRevision.id) && masterValidationChecks.length > 0 && masterValidationChecks.every((check) => check.valid);
 
   const handleNavigate = (tab: ActiveTab) => {
     // Keep the required setup sequence intact; the public demo has no client-side PIN gate.
@@ -258,32 +294,79 @@ function VisionApp() {
 
   const handleStartSession = async () => {
     if (sessionActive || sessionStarting || !setupValidated || !cameraReady || !masterReady) return;
+    let backendSessionStarted = false;
+    let rollbackContext: {
+      productCode: string;
+      revisionCode: string;
+      masterId: string;
+      masterRevisionId: string;
+      masterRevisionChecksum: string;
+    } | null = null;
     setSessionStarting(true);
-    setSystemMessage('INITIALIZING INSPECTION SESSION...');
+    setSystemMessage('VERIFYING APPROVED MASTER ASSIGNMENT...');
     setSystemMessageLevel('info');
     try {
+      // Re-read the station assignment immediately before opening a production
+      // session. A different browser may have activated a newer approved Master.
+      const latestMasters = await dbService.getAllMasters();
+      setMasters(latestMasters);
+      const assignedMaster = latestMasters.find((master) => master.isActive && master.activeRevisionId);
+      const assignedRevision = assignedMaster?.revisions.find((revision) =>
+        revision.id === assignedMaster.activeRevisionId && revision.status === 'APPROVED'
+      ) || null;
+      if (!assignedMaster || !assignedRevision ||
+          assignedMaster.id !== activeMaster?.id ||
+          assignedRevision.id !== activeRevision?.id ||
+          assignedRevision.checksum !== activeRevision?.checksum) {
+        setActiveMaster(assignedMaster || null);
+        setActiveRevision(assignedRevision);
+        setSetupValidated(false);
+        setSetupStep(2);
+        setActiveTab('MASTERS');
+        pipeline.resetPipeline();
+        setSystemMessage('MASTER ASSIGNMENT CHANGED — REVIEW AND REVALIDATE THE APPROVED STATION MASTER');
+        setSystemMessageLevel('warning');
+        return;
+      }
+      // Refresh temporary signed Storage URLs for this exact, unchanged revision.
+      setActiveMaster(assignedMaster);
+      setActiveRevision(assignedRevision);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      setSystemMessage('INITIALIZING INSPECTION SESSION...');
+      setSystemMessageLevel('info');
+      const sessionContext = {
+        productCode: assignedMaster.productCode,
+        revisionCode: assignedRevision.revisionCode,
+        masterId: assignedMaster.id,
+        masterRevisionId: assignedRevision.id,
+        masterRevisionChecksum: assignedRevision.checksum || '',
+      };
+      rollbackContext = sessionContext;
+      // The backend must confirm the exact approved station assignment before
+      // the local pipeline is allowed to enter Live Inspection.
+      await activateVisionSession(sessionContext);
+      backendSessionStarted = true;
       const started = await pipeline.startSession();
       if (!started) {
+        await endVisionSession(sessionContext);
+        backendSessionStarted = false;
         setSystemMessage('SESSION START FAILED — CAMERA FRAME OR BASELINE IS NOT READY');
         setSystemMessageLevel('error');
         return;
       }
-      setSessionActive(true);
       localStorage.setItem('vision-ai-session-active', '1');
-      setSystemMessage('INSPECTION SESSION STARTED — CONNECTING TO VISION BACKEND...');
-      setSystemMessageLevel('info');
-      void activateVisionSession({
-        productCode: activeMaster?.productCode || 'UNKNOWN',
-        revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
-      }).then(() => {
-        setSystemMessage('BACKEND SESSION EVENT ACCEPTED — LIVE INSPECTION IS RUNNING');
-        setSystemMessageLevel('success');
-      }).catch((error) => {
-        console.error('[Vision backend session activation]', error);
-        setSystemMessage('BACKEND ACTIVATION FAILED — LOCAL INSPECTION IS RUNNING; CLOUD EVENT WAS NOT CONFIRMED');
-        setSystemMessageLevel('warning');
-      });
+      setSessionActive(true);
+      backendSessionStarted = false;
+      setSystemMessage('APPROVED MASTER CONFIRMED — LIVE INSPECTION SESSION STARTED');
+      setSystemMessageLevel('success');
     } catch (error) {
+      if (backendSessionStarted && rollbackContext) {
+        try {
+          await endVisionSession(rollbackContext);
+        } catch (rollbackError) {
+          console.error('[Vision backend session rollback]', rollbackError);
+        }
+      }
       console.error('[Inspection session start]', error);
       setSystemMessage('SESSION START FAILED — PLEASE CHECK CAMERA AND TRY AGAIN');
       setSystemMessageLevel('error');
@@ -320,6 +403,9 @@ function VisionApp() {
     void endVisionSession({
       productCode: activeMaster?.productCode || 'UNKNOWN',
       revisionCode: activeRevision?.revisionCode || 'UNKNOWN',
+      masterId: activeMaster?.id || '',
+      masterRevisionId: activeRevision?.id || '',
+      masterRevisionChecksum: activeRevision?.checksum || '',
     }).catch((error) => {
       console.error('[Vision backend session end]', error);
       setSystemMessage('LIVE INSPECTION ENDED — BACKEND END EVENT COULD NOT BE CONFIRMED');
@@ -342,7 +428,7 @@ function VisionApp() {
         savedAt: new Date().toISOString(),
       });
       finalizeEndSession('CONFIGURATION SAVED — LIVE INSPECTION SESSION ENDED', 'success');
-      void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN' }).catch((error) => {
+      void endVisionSession({ productCode: activeMaster?.productCode || 'UNKNOWN', revisionCode: activeRevision?.revisionCode || 'UNKNOWN', masterId: activeMaster?.id || '', masterRevisionId: activeRevision?.id || '', masterRevisionChecksum: activeRevision?.checksum || '' }).catch((error) => {
         console.error('[Vision backend session end]', error);
         setSystemMessage('CONFIGURATION SAVE CONFIRMED — BACKEND END EVENT COULD NOT BE CONFIRMED');
         setSystemMessageLevel('warning');
@@ -443,6 +529,7 @@ function VisionApp() {
 
         {setupStep === 2 && (
           <MasterManager
+            role={role}
             masters={masters}
             activeMaster={activeMaster}
             activeRevision={activeRevision}
@@ -551,11 +638,11 @@ function VisionApp() {
           <LiveInspectionView videoRef={camera.videoRef} canvasRef={camera.canvasRef} cameraState={camera.cameraState} errorMessage={camera.errorMessage} fps={camera.fps} videoDimensions={camera.videoDimensions} state={pipeline.state} stabilizationProgress={pipeline.stabilizationProgress} motionDelta={pipeline.motionDelta} currentResult={pipeline.currentResult} latestAlignment={pipeline.latestAlignment} latestRoiResults={pipeline.latestRoiResults} latestExtraObjects={pipeline.latestExtraObjects} stats={pipeline.stats} liveMetrics={pipeline.liveMetrics} plcHandshake={pipeline.plcHandshake} plcSignals={pipeline.plcSignals} activeMaster={activeMaster} activeRevision={activeRevision} role={role} processingFps={processingFps} setProcessingFps={setProcessingFps} isVirtualMode={camera.isVirtualMode} virtualScenario={camera.virtualScenario} setVirtualScenario={camera.setVirtualScenario} enableVirtualMode={camera.enableVirtualMode} enablePhysicalCamera={camera.enablePhysicalCamera} onOpenHistory={() => setActiveTab('HISTORY')} onOpenPlcConfig={() => handleNavigate('SETTINGS')} onEndSession={handleEndSessionRequest} onStartSession={handleStartSession} sessionActive={sessionActive} sessionStarting={sessionStarting} />)}
         {setupStep === 5 && activeTab === 'HISTORY' && <InspectionHistoryView onRefreshStats={pipeline.refreshStats} />}
         {setupStep === 5 && activeTab === 'SETTINGS' && <SettingsView onNavigate={handleNavigate} onClose={() => setActiveTab('INSPECTION')} />}
-        {setupStep === 5 && activeTab === 'MASTERS' && <MasterManager masters={masters} activeMaster={activeMaster} activeRevision={activeRevision} onSelectMaster={handleSelectMaster} onRefreshMasters={loadMasters} onOpenSetupModal={handleOpenSetupModal} onCreateNewMaster={handleCreateNewMaster} onBackSetup={handleBackToCameraSetup} onContinueSetup={handleNextMasterSetup} />}
+        {setupStep === 5 && activeTab === 'MASTERS' && <MasterManager role={role} masters={masters} activeMaster={activeMaster} activeRevision={activeRevision} onSelectMaster={handleSelectMaster} onRefreshMasters={loadMasters} onOpenSetupModal={handleOpenSetupModal} onCreateNewMaster={handleCreateNewMaster} onBackSetup={handleBackToCameraSetup} onContinueSetup={handleNextMasterSetup} />}
         {setupStep === 5 && activeTab === 'PLC_SETUP' && <PLCConfigurationView />}
         {setupStep === 5 && activeTab === 'DIAGNOSTICS' && <DiagnosticsModal metrics={pipeline.liveMetrics} />}
       </main>
-      {setupStep === 2 && isSetupModalOpen && setupMaster && setupRevision && <MasterSetupModal master={setupMaster} revision={setupRevision} isOpen={isSetupModalOpen} onClose={() => setIsSetupModalOpen(false)} onSaved={loadMasters} />}
+      {setupStep === 2 && isSetupModalOpen && setupMaster && setupRevision && <MasterSetupModal master={setupMaster} revision={setupRevision} isOpen={isSetupModalOpen} onClose={() => setIsSetupModalOpen(false)} onSaved={handleMasterDraftSaved} />}
       {showEndSessionDialog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="presentation">
           <section role="dialog" aria-modal="true" aria-labelledby="end-session-title" className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-slate-950 p-6 shadow-2xl">

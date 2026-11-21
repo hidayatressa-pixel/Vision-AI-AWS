@@ -21,6 +21,7 @@ function makeBolt({ background = 150, object = 35, centerX = 32, centerY = 32, r
 const ok = describePatch(makeBolt(), SIZE, 'contrast');
 const sameDifferentLight = describePatch(makeBolt({ background: 190, object: 75 }), SIZE, 'contrast');
 const missing = describePatch(new Float32Array(SIZE * SIZE).fill(150), SIZE, 'contrast');
+const unrelatedEmptyBackground = describePatch(new Float32Array(SIZE * SIZE).fill(70), SIZE, 'contrast');
 const shifted = describePatch(makeBolt({ centerX: 43, centerY: 32 }), SIZE, 'contrast');
 const wrongSize = describePatch(makeBolt({ radius: 7 }), SIZE, 'contrast');
 const roundObject = new Float32Array(SIZE * SIZE).fill(150);
@@ -35,6 +36,10 @@ assert.ok(missing.presenceConfidence >= 0.65, 'clean empty background should pro
 assert.ok(compareDescriptors(ok, missing) < 0.25, 'empty background should be clearly different from the positive screw Master');
 assert.ok(compareDescriptors(ok, sameDifferentLight) > 0.85, 'same bolt should remain similar under brightness shift');
 assert.ok(compareDescriptors(ok, missing) < 0.2, 'missing bolt must not match the OK bolt');
+assert.ok(
+  compareDescriptors(missing, unrelatedEmptyBackground) < 0.7,
+  'two empty-looking ROIs with different background appearance must not be treated as identical'
+);
 assert.equal(confirmsMissingObject(false, 0.05, 0.98, 0.75, 0.06), true, 'missing bolt should be NG when a matching labelled missing-object reference exists');
 assert.equal(confirmsMissingObject(false, 0.05, 0.20, 0.75, 0.06), false, 'weak absence evidence must remain uncertain');
 assert.equal(confirmsMissingObject(true, 0.90, 0.98, 0.75, 0.06), false, 'a present object must never be labelled missing');

@@ -304,7 +304,8 @@ export function useInspectionPipeline({
             revision.masterWidth,
             revision.masterHeight,
             revision.referenceImages || [],
-            candidateFrame
+            candidateFrame,
+            revision.inspectionProfile
           );
           roiResults = inspection.roiResults;
           extraObjects = inspection.extraObjects;
@@ -582,6 +583,7 @@ export function useInspectionPipeline({
         masterId: master.id,
         masterRevisionId: revision.id,
         masterRevisionCode: revision.revisionCode,
+        masterRevisionChecksum: revision.checksum || '',
         judgement: resultJudgement,
         expectedCount: evaluation.expectedCount,
         detectedCount: evaluation.detectedCount,
@@ -611,6 +613,9 @@ export function useInspectionPipeline({
         alignmentConfidence: alignment.confidence,
         roiConfidences: roiResults.map((roi) => roi.confidence),
         jig: cloudIdentity.stationId,
+        masterId: master.id,
+        masterRevisionId: revision.id,
+        masterRevisionChecksum: revision.checksum || '',
         inspectionId,
         productCode: master.productCode,
         revisionCode: revision.revisionCode,

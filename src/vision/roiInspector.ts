@@ -76,6 +76,7 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
   const promise = new Promise<Float32Array | null>((resolve) => {
     if (!reference.imageUrl) return resolve(null);
     const image = new Image();
+    image.crossOrigin = 'anonymous';
     image.decoding = 'async';
     image.onload = () => resolve(imageToPatch(image, layout));
     image.onerror = () => resolve(null);
@@ -87,6 +88,121 @@ function loadReference(reference: ReferenceImage, roi: InspectionROI): Promise<F
   }
   referenceCache.set(cacheKey, promise);
   return promise;
+}
+
+type ColorSignature = { red: number; green: number; blue: number; saturation: number };
+const referenceColorCache = new Map<string, Promise<ColorSignature | null>>();
+
+function colorSignatureFromPixels(
+  pixels: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+  stride: number,
+  offset = 0
+): ColorSignature | null {
+  let red = 0, green = 0, blue = 0, count = 0;
+  // The central region emphasizes the inspected component and reduces the
+  // influence of the surrounding fixture/background.
+  const left = Math.floor(width * 0.3), right = Math.ceil(width * 0.7);
+  const top = Math.floor(height * 0.3), bottom = Math.ceil(height * 0.7);
+  for (let y = top; y < bottom; y++) {
+    for (let x = left; x < right; x++) {
+      const index = offset + (y * width + x) * stride;
+      red += pixels[index];
+      green += pixels[index + 1];
+      blue += pixels[index + 2];
+      count++;
+    }
+  }
+  if (!count) return null;
+  red /= count; green /= count; blue /= count;
+  const total = red + green + blue;
+  if (!Number.isFinite(total) || total < 12) return null;
+  const maximum = Math.max(red, green, blue);
+  const minimum = Math.min(red, green, blue);
+  return {
+    red: red / total,
+    green: green / total,
+    blue: blue / total,
+    saturation: maximum > 0 ? (maximum - minimum) / maximum : 0,
+  };
+}
+
+function imageToColorSignature(image: HTMLImageElement, layout: ReferenceRoiLayout): ColorSignature | null {
+  try {
+    if (!image.naturalWidth || !image.naturalHeight) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    const left = layout.x * image.naturalWidth;
+    const top = layout.y * image.naturalHeight;
+    const width = layout.width * image.naturalWidth;
+    const height = layout.height * image.naturalHeight;
+    if (left < 0 || top < 0 || width < 2 || height < 2 ||
+        left + width > image.naturalWidth || top + height > image.naturalHeight) return null;
+    context.drawImage(image, left, top, width, height, 0, 0, 32, 32);
+    return colorSignatureFromPixels(context.getImageData(0, 0, 32, 32).data, 32, 32, 4);
+  } catch {
+    return null;
+  }
+}
+
+function loadReferenceColorSignature(reference: ReferenceImage, roi: InspectionROI): Promise<ColorSignature | null> {
+  const layout = reference.roiLayouts?.[roi.id] || fallbackLayout(roi);
+  const cacheKey = [reference.id, reference.imageUrl, roi.id, layout.x, layout.y, layout.width, layout.height].join(':');
+  const cached = referenceColorCache.get(cacheKey);
+  if (cached) return cached;
+  const promise = new Promise<ColorSignature | null>((resolve) => {
+    if (!reference.imageUrl) return resolve(null);
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.decoding = 'async';
+    image.onload = () => resolve(imageToColorSignature(image, layout));
+    image.onerror = () => resolve(null);
+    image.src = reference.imageUrl;
+  });
+  if (referenceColorCache.size >= 256) {
+    const oldestKey = referenceColorCache.keys().next().value;
+    if (oldestKey) referenceColorCache.delete(oldestKey);
+  }
+  referenceColorCache.set(cacheKey, promise);
+  return promise;
+}
+
+function currentColorSignature(frame: ImageData, geometry: RoiFrameGeometry): ColorSignature | null {
+  const size = 32;
+  const pixels = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    const localY = ((y + 0.5) / size - 0.5) * geometry.height;
+    for (let x = 0; x < size; x++) {
+      const localX = ((x + 0.5) / size - 0.5) * geometry.width;
+      const sourceX = Math.round(geometry.centerX + geometry.cos * localX - geometry.sin * localY);
+      const sourceY = Math.round(geometry.centerY + geometry.sin * localX + geometry.cos * localY);
+      if (sourceX < 0 || sourceY < 0 || sourceX >= frame.width || sourceY >= frame.height) return null;
+      const sourceIndex = (sourceY * frame.width + sourceX) * 4;
+      const targetIndex = (y * size + x) * 4;
+      pixels[targetIndex] = frame.data[sourceIndex];
+      pixels[targetIndex + 1] = frame.data[sourceIndex + 1];
+      pixels[targetIndex + 2] = frame.data[sourceIndex + 2];
+      pixels[targetIndex + 3] = 255;
+    }
+  }
+  return colorSignatureFromPixels(pixels, size, size, 4);
+}
+
+function compareColorSignatures(reference: ColorSignature, current: ColorSignature): number {
+  // Neutral metallic/greyscale objects carry little reliable hue information.
+  // Do not invent a color mismatch when both samples are effectively neutral.
+  if (reference.saturation < 0.08 && current.saturation < 0.08) return 1;
+  const chromaDistance = Math.sqrt(
+    (reference.red - current.red) ** 2 +
+    (reference.green - current.green) ** 2 +
+    (reference.blue - current.blue) ** 2
+  );
+  const saturationDistance = Math.abs(reference.saturation - current.saturation);
+  return Math.max(0, Math.min(1, Math.exp(-chromaDistance * 5 - saturationDistance * 1.5)));
 }
 
 interface RoiFrameGeometry {
@@ -172,8 +288,9 @@ function currentRoiPatch(frame: GrayscaleImage, geometry: RoiFrameGeometry): Flo
 function comparePatches(
   reference: Float32Array,
   current: Float32Array,
-  roi: InspectionROI
-): { score: number; shapeScore: number; referenceShape: RoiShapeDescriptor; currentShape: RoiShapeDescriptor } {
+  roi: InspectionROI,
+  colorScore = 1
+): { score: number; shapeScore: number; colorScore: number; referenceShape: RoiShapeDescriptor; currentShape: RoiShapeDescriptor } {
   const referenceShape = describePatch(reference, PATCH_SIZE, roi.expectedPolarity || 'contrast');
   const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
   const refStructure = normalizePatch(reference);
@@ -195,9 +312,16 @@ function comparePatches(
       : structureDifference * 0.75 + brightnessDifference * 0.25;
   const pixelSimilarity = Math.max(0, Math.min(1, 1 - pixelDifference));
   const shapeScore = compareDescriptors(referenceShape, currentShape);
-  // Spatial shape features receive greater weight than raw pixel brightness.
-  const score = Math.max(0, Math.min(1, pixelSimilarity * 0.35 + shapeScore * 0.65));
-  return { score, shapeScore, referenceShape, currentShape };
+  // Master-configured color weight supplements shape and local texture.
+  // Color is never allowed to replace the independent presence/background evidence.
+  const colorWeight = Math.max(0.05, Math.min(0.4, roi.colorWeight ?? 0.15));
+  const structureWeight = 1 - colorWeight;
+  const score = Math.max(0, Math.min(1,
+    pixelSimilarity * structureWeight * (0.30 / 0.85) +
+    shapeScore * structureWeight * (0.55 / 0.85) +
+    colorScore * colorWeight
+  ));
+  return { score, shapeScore, colorScore, referenceShape, currentShape };
 }
 
 function uncertainResult(
@@ -208,9 +332,9 @@ function uncertainResult(
   frameHeight: number,
   shape?: RoiShapeDescriptor
 ): ROIInspectionResult {
-  const evidence = !shape || shape.presenceConfidence < 0.5
-    ? 'UNCERTAIN'
-    : shape.present ? 'PRESENT' : 'ABSENT';
+  // A diagnostic fallback is not proof of presence or absence. Only the main
+  // recognition path may emit PRESENT/ABSENT after matching approved references.
+  const evidence = 'UNCERTAIN';
   let actualDetectedPosition: { x: number; y: number } | null = null;
   if (geometry && shape?.present) {
     const localX = (shape.centroidX - 0.5) * geometry.width;
@@ -247,15 +371,15 @@ export class ROIInspector {
     masterWidth: number,
     masterHeight: number,
     referenceImages: ReferenceImage[] = [],
-    colorFrame: ImageData | null = null
+    colorFrame: ImageData | null = null,
+    inspectionProfile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
-    const eightPointPresenceMode = isEightPointPresenceCandidate(rois);
-    // Keep the existing signature for callers that still supply the RGB frame;
-    // ROI feature extraction uses the already-normalized grayscale frame.
-    void colorFrame;
+    const eightPointPresenceMode = isEightPointPresenceCandidate(rois, inspectionProfile);
+    // Live recognition requires both grayscale structure and readable RGB
+    // evidence. Without RGB, the system cannot claim that Master color checks ran.
 
     for (const roi of rois) {
       const geometry = mapRoiToFrame(frame, roi, alignment, masterWidth, masterHeight);
@@ -271,6 +395,14 @@ export class ROIInspector {
         continue;
       }
       const currentShape = describePatch(current, PATCH_SIZE, roi.expectedPolarity || 'contrast');
+      const liveColor = colorFrame ? currentColorSignature(colorFrame, geometry) : null;
+      if (!liveColor) {
+        results.push(uncertainResult(
+          roi, geometry, `${roi.name}: live RGB color evidence is unavailable; Master recognition cannot be completed`,
+          frame.width, frame.height, currentShape
+        ));
+        continue;
+      }
       const expectedPresence = roi.expectedObjectPresence !== false;
       const presenceThreshold = currentShape.present && roi.objectType === 'screw'
         ? Math.max(0.5, Math.min(0.98, tolerance.minScrewConfidence))
@@ -289,15 +421,19 @@ export class ROIInspector {
       // product judgement. A broken Master OK crop must produce WARNING/INVALID,
       // not a false product NG or an accidental OK.
       const comparisons = await Promise.all(usableReferences.map(async (reference) => {
-        const patch = await loadReference(reference, roi);
-        if (!patch) return null;
-        const compared = comparePatches(patch, current, roi);
+        const [patch, referenceColor] = await Promise.all([
+          loadReference(reference, roi),
+          loadReferenceColorSignature(reference, roi),
+        ]);
+        if (!patch || !referenceColor) return null;
+        const colorScore = compareColorSignatures(referenceColor, liveColor);
+        const compared = comparePatches(patch, current, roi, colorScore);
         return { reference, ...compared };
       }));
       const valid = comparisons.filter((item): item is NonNullable<typeof item> => item !== null);
       const allOkMatches = valid.filter((item) => (item.reference.kind || 'OK') === 'OK');
       const ngMatches = valid.filter((item) => item.reference.kind === 'NG');
-      if (allOkMatches.length === 0 || (!eightPointPresenceMode && ngMatches.length === 0)) {
+      if (allOkMatches.length === 0 || ngMatches.length === 0) {
         results.push(uncertainResult(roi, geometry, `${roi.name}: usable OK and NG reference crops could not both be decoded`, frame.width, frame.height, currentShape));
         continue;
       }
@@ -319,6 +455,7 @@ export class ROIInspector {
         : null;
       const threshold = Math.max(0.5, Math.min(0.98, roi.minConfidence || 0.75));
       const classMargin = Math.max(0.02, Math.min(0.3, roi.minClassMargin ?? 0.06));
+      const minColorSimilarity = Math.max(0.4, Math.min(0.98, roi.minColorSimilarity ?? 0.55));
 
       if (!hasPresenceEvidence) {
         results.push({
@@ -342,18 +479,18 @@ export class ROIInspector {
         const bestAbsentNg = absentNgMatches.length > 0
           ? absentNgMatches.reduce((best, item) => item.score > best.score ? item : best)
           : null;
-        const missingConfirmed = eightPointPresenceMode
-          ? confirmsEightPointAbsence(
+        const missingConfirmed = Boolean(bestAbsentNg &&
+          bestAbsentNg.colorScore >= minColorSimilarity &&
+          confirmsMissingObject(currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin) &&
+          (!eightPointPresenceMode || confirmsEightPointAbsence(
             currentShape.present,
             currentShape.presenceConfidence,
             bestOk.referenceShape.present,
             bestOk.shapeScore,
             Math.max(0.65, Math.min(0.9, tolerance.minScrewConfidence || 0.75)),
             0.35
-          )
-          : Boolean(bestAbsentNg && confirmsMissingObject(
-            currentShape.present, bestOk.score, bestAbsentNg.score, threshold, classMargin
-          ));
+          ))
+        );
         results.push({
           roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
           masterPosition: { x: roi.x, y: roi.y },
@@ -377,30 +514,82 @@ export class ROIInspector {
       }
 
       if (!expectedPresence && currentShape.present) {
-        results.push({
-          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
-          masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: expectedFramePosition,
-          actualDetectedPosition,
-          positionOffsetPx: null, positionOffsetMm: null,
-          isWithinTolerance: false, confidence: currentShape.presenceConfidence,
-          isPresent: true, evidence: 'PRESENT', status: 'FAIL',
-          failureReason: `${roi.name}: unexpected ${roi.objectType} detected in an ROI configured to be empty`,
-        });
+        const ngConfirmed = Boolean(bestNg?.referenceShape.present &&
+          bestNg.colorScore >= minColorSimilarity &&
+          bestNg.score >= threshold &&
+          bestNg.score - bestOk.score >= classMargin);
+        if (ngConfirmed) {
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: false, confidence: Math.round(bestNg!.score * 100) / 100,
+            isPresent: true, evidence: 'PRESENT', status: 'FAIL',
+            failureReason: `${roi.name}: detected object matches the approved NG reference for this empty area`,
+          });
+        } else {
+          results.push(uncertainResult(
+            roi, geometry,
+            `${roi.name}: foreground was detected in an empty-expected ROI, but it did not match the approved NG object reference`,
+            frame.width, frame.height, currentShape
+          ));
+        }
         continue;
       }
 
       if (!expectedPresence && !currentShape.present) {
-        matchedRoiCount++;
-        results.push({
-          roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
-          masterPosition: { x: roi.x, y: roi.y },
-          expectedTransformedPosition: expectedFramePosition,
-          actualDetectedPosition: null,
-          positionOffsetPx: null, positionOffsetMm: null,
-          isWithinTolerance: true, confidence: currentShape.presenceConfidence,
-          isPresent: false, evidence: 'ABSENT', status: 'PASS',
-        });
+        // An empty-looking crop is not enough to pass. The surrounding target
+        // area/background must match the approved empty-state Master, and the
+        // labelled NG reference must prove what an unwanted object looks like.
+        const negativeReferenceValid = Boolean(bestNg?.referenceShape.present && bestNg.colorScore >= minColorSimilarity);
+        const ngConfirmed = negativeReferenceValid &&
+          bestNg!.score >= threshold &&
+          bestNg!.score - bestOk.score >= classMargin;
+        const okConfirmed = negativeReferenceValid &&
+          bestOk.colorScore >= minColorSimilarity &&
+          bestOk.score >= threshold &&
+          bestOk.score - bestNg!.score >= classMargin;
+
+        if (ngConfirmed) {
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition: null,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: false, confidence: Math.round(bestNg!.score * 100) / 100,
+            isPresent: false, evidence: 'ABSENT', status: 'FAIL',
+            failureReason: `${roi.name}: empty-area state matches the approved NG reference containing an unwanted object`,
+          });
+        } else if (okConfirmed) {
+          matchedRoiCount++;
+          results.push({
+            roiId: roi.id, roiName: roi.name, objectType: roi.objectType,
+            masterPosition: { x: roi.x, y: roi.y },
+            expectedTransformedPosition: expectedFramePosition,
+            actualDetectedPosition: null,
+            positionOffsetPx: null, positionOffsetMm: null,
+            isWithinTolerance: true, confidence: Math.round(bestOk.score * 100) / 100,
+            isPresent: false, evidence: 'ABSENT', status: 'PASS',
+          });
+        } else {
+          results.push(uncertainResult(
+            roi, geometry,
+            `${roi.name}: no foreground was detected, but the empty-area background did not match the approved OK Master with sufficient separation from the NG reference`,
+            frame.width, frame.height, currentShape
+          ));
+        }
+        continue;
+      }
+
+      if (expectedPresence && currentShape.present && bestOk.colorScore < minColorSimilarity) {
+        results.push(uncertainResult(
+          roi, geometry,
+          `${roi.name}: screw-like object was detected but its color signature does not match the approved Master`,
+          frame.width, frame.height, currentShape
+        ));
         continue;
       }
 
@@ -408,7 +597,8 @@ export class ROIInspector {
       // not full OK/NG quality classification. A present patch must still match
       // the positive screw Master strongly enough to reject unrelated texture.
       if (eightPointPresenceMode) {
-        if (bestOk.score < threshold) {
+        const positiveMargin = bestOk.score - (bestNg?.score ?? 0);
+        if (bestOk.score < threshold || positiveMargin < classMargin) {
           results.push(uncertainResult(
             roi, geometry, `${roi.name}: screw-like foreground was detected but did not match the positive screw Master`,
             frame.width, frame.height, currentShape
@@ -437,8 +627,8 @@ export class ROIInspector {
       }
 
       const margin = bestOk.score - bestNg.score;
-      const okConfirmed = bestOk.score >= threshold && margin >= classMargin;
-      const ngConfirmed = bestNg.score >= threshold && margin <= -classMargin;
+      const okConfirmed = bestOk.colorScore >= minColorSimilarity && bestOk.score >= threshold && margin >= classMargin;
+      const ngConfirmed = bestNg.colorScore >= minColorSimilarity && bestNg.score >= threshold && margin <= -classMargin;
       const bestSimilarity = Math.max(bestOk.score, bestNg.score);
 
       // Position is measured against the best OK object centroid in rectified ROI space.

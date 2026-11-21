@@ -39,6 +39,8 @@ export interface ReferenceImage {
   id: string;
   label: string;
   imageUrl: string;
+  /** Private Supabase Storage object path; imageUrl is a temporary signed URL at runtime. */
+  storagePath?: string;
   /** Class label used by multi-reference visual classification. Legacy references default to OK. */
   kind?: ReferenceClass;
   /** Each reference image can have its own independently editable ROI layout, keyed by InspectionROI.id. */
@@ -73,6 +75,10 @@ export interface InspectionROI {
   expectedObjectPresence?: boolean;
   /** Minimum score separation between OK and NG references; defaults to 0.06. */
   minClassMargin?: number;
+  /** Minimum color signature similarity to the labelled Master reference; defaults to 0.55. */
+  minColorSimilarity?: number;
+  /** Weight assigned to RGB chromaticity in the combined recognition score; defaults to 0.15. */
+  colorWeight?: number;
   /** Allowed relative foreground-area change from the OK reference; defaults to 0.35. */
   sizeToleranceRatio?: number;
   /** Allowed aspect/circularity/solidity change from the OK contour; defaults to 0.10. */
@@ -98,6 +104,7 @@ export type RoiBoundaryPolicy = 'STRICT' | 'WARNING' | 'DISABLED';
 
 export interface MasterRevision {
   id: string;
+  inspectionProfile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE';
   masterId: string;
   revisionCode: string;
   revisionNote: string;
@@ -107,6 +114,14 @@ export interface MasterRevision {
   referenceImages: ReferenceImage[];
   tolerance: ToleranceConfig;
   masterImageUrl: string;
+  /** Private Supabase Storage object path for the master image. */
+  masterImagePath?: string;
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'REJECTED' | 'APPROVED';
+  checksum?: string;
+  approvedBy?: string | null;
+  submittedAt?: string | null;
+  submittedBy?: string | null;
+  approvedAt?: string | null;
   masterWidth: number;
   masterHeight: number;
   detectionZone: Box2D;

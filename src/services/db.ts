@@ -1,16 +1,18 @@
 /**
  * Persistence service for Vision-AI.
  *
- * Master configuration remains local to the station for now. Inspection history
- * is cloud-first and is stored in Supabase/PostgREST so every device sees the
- * same history. No service-role key is ever used in the browser.
+ * Master products and immutable revisions are centrally stored in Supabase
+ * PostgreSQL, with private revision-scoped assets in Supabase Storage. Inspection
+ * history is cloud-first. No service-role key is ever used in the browser.
  */
 
 import { InspectionRecord, InspectionStats } from '../types/inspection';
-import { MasterProduct } from '../types/master';
-import { getSupabaseAccessToken, getVisionApiBaseUrl } from './supabase';
+import { MasterProduct, MasterRevision } from '../types/master';
+import { getSupabaseAccessToken, getVisionApiBaseUrl, supabase } from './supabase';
 
 const VISION_API_URL = getVisionApiBaseUrl();
+const VISION_STATION_ID = String(import.meta.env.VITE_VISION_STATION_ID || 'VISION-AI-AWS').trim();
+const MASTER_BUCKET = 'vision-assets';
 
 class DatabaseService {
   private getHistoryApiUrl(): string {
@@ -18,6 +20,126 @@ class DatabaseService {
       throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
     }
     return `${VISION_API_URL}/v1/inspection-history`;
+  }
+
+  private async requestEndpoint<T = unknown>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    if (!VISION_API_URL) throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
+    const token = await getSupabaseAccessToken();
+    const response = await fetch(VISION_API_URL + endpoint, {
+      ...init,
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...init.headers },
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error('Vision backend error ' + response.status + ': ' + (body || response.statusText));
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  }
+
+  private knownMasterIds = new Set<string>();
+  private migrationAttempted = false;
+
+  public getStationId(): string { return VISION_STATION_ID; }
+
+  public async getCurrentUserRole(): Promise<'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN'> {
+    const result = await this.requestEndpoint<{ role: 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN' }>('/v1/me');
+    return result.role;
+  }
+
+  private safePathSegment(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100) || 'asset';
+  }
+
+  private async uploadMasterImage(masterId: string, revisionId: string, fileName: string, imageUrl: string, existingPath?: string): Promise<string> {
+    if (!supabase) throw new Error('Supabase Storage is not configured.');
+    const revisionPrefix = this.safePathSegment(masterId) + '/' + this.safePathSegment(revisionId) + '/';
+    // New draft shells may be created before an image is selected; submission
+    // validation will block them until all required Master assets are present.
+    if (!imageUrl && !existingPath) return '';
+    // Reuse an object only when it already belongs to this exact revision.
+    // Cloned revisions must receive independent immutable asset paths.
+    if (existingPath && existingPath.startsWith(revisionPrefix)) return existingPath;
+    let sourceUrl = imageUrl;
+    if (!sourceUrl && existingPath) sourceUrl = await this.signedAssetUrl(existingPath);
+    if (!sourceUrl) throw new Error('Master image is missing. Upload or re-select the image before saving.');
+    let response = await fetch(sourceUrl);
+    if (!response.ok && existingPath) {
+      // A previously materialized signed URL may have expired while the editor stayed open.
+      sourceUrl = await this.signedAssetUrl(existingPath);
+      response = await fetch(sourceUrl);
+    }
+    if (!response.ok) throw new Error('Unable to read the source Master image for this revision.');
+    const blob = await response.blob();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new Error('Master assets must be JPG, PNG, or WEBP images.');
+    if (blob.size > 25 * 1024 * 1024) throw new Error('Master image exceeds the 25 MiB Storage limit.');
+    const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/png' ? 'png' : 'webp';
+    const objectPath = revisionPrefix + fileName + '.' + extension;
+    const { error } = await supabase.storage.from(MASTER_BUCKET).upload(objectPath, blob, { contentType: blob.type, upsert: true });
+    if (error) throw new Error('Master asset upload failed: ' + error.message);
+    return objectPath;
+  }
+
+  private async signedAssetUrl(path?: string): Promise<string> {
+    if (!path) return '';
+    if (!supabase) throw new Error('Supabase Storage is not configured.');
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).createSignedUrl(path, 86400);
+    if (error || !data?.signedUrl) throw new Error('Unable to read approved Master asset: ' + (error?.message || 'signed URL unavailable'));
+    return data.signedUrl;
+  }
+
+  private async materializeMaster(master: MasterProduct): Promise<MasterProduct> {
+    const revisions = await Promise.all(master.revisions.map(async (revision) => ({
+      ...revision,
+      masterImageUrl: await this.signedAssetUrl(revision.masterImagePath),
+      referenceImages: await Promise.all((revision.referenceImages || []).map(async (reference) => ({
+        ...reference, imageUrl: await this.signedAssetUrl(reference.storagePath),
+      }))),
+    })));
+    return { ...master, revisions };
+  }
+
+  private async getLegacyLocalMasters(): Promise<MasterProduct[]> {
+    try {
+      const stored = await this.runMasterTransaction<MasterProduct[]>('readonly', (store) => store.getAll());
+      if (stored.length) return stored;
+    } catch { /* Fall back to localStorage for older browsers. */ }
+    return this.readFallbackMasters();
+  }
+
+  public async submitMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/submit', { method: 'POST' });
+  }
+
+  public async approveMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/approve', { method: 'POST' });
+  }
+
+  public async rejectMasterRevision(masterId: string, revisionId: string, reason: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/reject', { method: 'POST', body: JSON.stringify({ reason }) });
+  }
+
+  public async assignMasterRevision(masterId: string, revisionId: string): Promise<void> {
+    await this.requestEndpoint('/v1/masters/' + encodeURIComponent(masterId) + '/revisions/' + encodeURIComponent(revisionId) + '/assign', {
+      method: 'POST', body: JSON.stringify({ station_id: VISION_STATION_ID }),
+    });
+  }
+
+  public async assignUserRole(userId: string, email: string, role: 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN'): Promise<void> {
+    await this.requestEndpoint('/v1/admin/users/' + encodeURIComponent(userId) + '/role', {
+      method: 'POST', body: JSON.stringify({ email, role, is_active: true }),
+    });
+  }
+
+  public async getUserStations(userId: string): Promise<string[]> {
+    const result = await this.requestEndpoint<{ station_ids: string[] }>('/v1/admin/users/' + encodeURIComponent(userId) + '/stations');
+    return result.station_ids || [];
+  }
+
+  public async assignUserStations(userId: string, stationIds: string[]): Promise<void> {
+    await this.requestEndpoint('/v1/admin/users/' + encodeURIComponent(userId) + '/stations', {
+      method: 'POST', body: JSON.stringify({ station_ids: stationIds }),
+    });
   }
 
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
@@ -121,54 +243,121 @@ class DatabaseService {
   }
 
   public async getAllMasters(): Promise<MasterProduct[]> {
-    try {
-      const stored = await this.runMasterTransaction<MasterProduct[]>('readonly', (store) => store.getAll());
-      this.masterCache = new Map(stored.map((master) => [master.id, master]));
-      // One-time migration for existing browser profiles which used localStorage.
-      if (stored.length === 0) {
-        const legacy = this.readFallbackMasters();
-        if (legacy.length > 0) {
-          for (const master of legacy) await this.runMasterTransaction<IDBValidKey>('readwrite', (store) => store.put(master));
-          this.masterCache = new Map(legacy.map((master) => [master.id, master]));
+    const role = await this.getCurrentUserRole();
+    const query = '?station_id=' + encodeURIComponent(VISION_STATION_ID);
+    let cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
+    if (!this.migrationAttempted && (role === 'ENGINEER' || role === 'ADMIN')) {
+      const legacy = await this.getLegacyLocalMasters();
+      if (legacy.length) {
+        this.migrationAttempted = true;
+        this.knownMasterIds = new Set(cloud.map((master) => master.id));
+        this.masterCache = new Map(cloud.map((master) => [master.id, master]));
+        for (const localMaster of legacy) {
+          const cloudMaster = cloud.find((master) => master.id === localMaster.id);
+          if (!cloudMaster && cloud.some((master) => master.productCode === localMaster.productCode)) continue;
+          for (const revision of localMaster.revisions) {
+            if (cloudMaster?.revisions.some((item) => item.id === revision.id || item.revisionCode === revision.revisionCode)) continue;
+            await this.saveMaster({ ...localMaster, revisions: [revision] });
+          }
         }
+        cloud = await this.requestEndpoint<MasterProduct[]>('/v1/masters' + query);
       }
-      return Array.from(this.masterCache.values());
-    } catch {
-      if (this.masterCache.size === 0) {
-        this.masterCache = new Map(this.readFallbackMasters().map((master) => [master.id, master]));
-      }
-      return Array.from(this.masterCache.values());
     }
+    const materialized = await Promise.all(cloud.map((master) => this.materializeMaster(master)));
+    this.masterCache = new Map(materialized.map((master) => [master.id, master]));
+    this.knownMasterIds = new Set(materialized.map((master) => master.id));
+    return materialized;
   }
 
   public async getMasterById(id: string): Promise<MasterProduct | null> {
-    if (this.masterCache.has(id)) return this.masterCache.get(id) || null;
-    try {
-      const master = await this.runMasterTransaction<MasterProduct | undefined>('readonly', (store) => store.get(id));
-      if (master) this.masterCache.set(id, master);
-      return master || null;
-    } catch {
-      if (this.masterCache.size === 0) this.masterCache = new Map(this.readFallbackMasters().map((item) => [item.id, item]));
-      return this.masterCache.get(id) || null;
-    }
+    const all = await this.getAllMasters();
+    return all.find((master) => master.id === id) || null;
   }
 
-  public async deleteMaster(id: string): Promise<void> {
-    this.masterCache.delete(id);
-    try {
-      await this.runMasterTransaction<undefined>('readwrite', (store) => store.delete(id));
-    } catch {
-      this.writeFallbackMasters();
-    }
+  public async deleteMaster(_id: string): Promise<void> {
+    throw new Error('Master deletion is disabled to preserve revision and inspection history.');
+  }
+
+  private revisionComparableValue(revision: MasterRevision): string {
+    const isLocalImage = (url?: string) => Boolean(url && (url.startsWith('data:image/') || url.startsWith('blob:')));
+    const content: Record<string, unknown> = { ...revision };
+    [
+      'status', 'checksum', 'submittedAt', 'submittedBy',
+      'approvedAt', 'approvedBy', 'createdAt', 'updatedAt', 'createdBy',
+    ].forEach((key) => { delete content[key]; });
+    return JSON.stringify({
+      ...content,
+      masterImageUrl: isLocalImage(revision.masterImageUrl) ? revision.masterImageUrl : '',
+      referenceImages: (revision.referenceImages || []).map((reference) => ({
+        ...reference,
+        imageUrl: isLocalImage(reference.imageUrl) ? reference.imageUrl : '',
+      })),
+    });
   }
 
   public async saveMaster(master: MasterProduct): Promise<void> {
-    this.masterCache.set(master.id, master);
-    try {
-      await this.runMasterTransaction<IDBValidKey>('readwrite', (store) => store.put(master));
-    } catch {
-      this.writeFallbackMasters();
+    const previous = this.masterCache.get(master.id);
+    const changed = master.revisions.filter((revision) =>
+      !previous || !previous.revisions.some((old) =>
+        old.id === revision.id && this.revisionComparableValue(old) === this.revisionComparableValue(revision)
+      )
+    );
+    if (changed.length === 0 && this.knownMasterIds.has(master.id)) {
+      await this.requestEndpoint('/v1/masters/' + encodeURIComponent(master.id), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          product_code: master.productCode,
+          product_name: master.productName,
+          description: master.description,
+        }),
+      });
+      this.masterCache.set(master.id, master);
+      return;
     }
+    const revisionsToSave = changed;
+
+    let isNew = !this.knownMasterIds.has(master.id);
+    for (const revision of revisionsToSave) {
+      const masterImagePath = await this.uploadMasterImage(
+        master.id, revision.id, 'master-image', revision.masterImageUrl, revision.masterImagePath
+      );
+      const referenceImages = await Promise.all((revision.referenceImages || []).map(async (reference, index) => ({
+        ...reference,
+        storagePath: await this.uploadMasterImage(
+          master.id, revision.id, 'reference-' + this.safePathSegment(reference.id || String(index + 1)),
+          reference.imageUrl, reference.storagePath
+        ),
+        imageUrl: '',
+      })));
+      const storedRevision = {
+        ...revision,
+        masterImagePath,
+        masterImageUrl: '',
+        referenceImages,
+        status: 'DRAFT' as const,
+      };
+      const body = JSON.stringify({
+        master: {
+          id: master.id, productCode: master.productCode, productName: master.productName,
+          description: master.description, isActive: master.isActive,
+        },
+        revision: storedRevision,
+      });
+      if (isNew) {
+        await this.requestEndpoint('/v1/masters', { method: 'POST', body });
+        isNew = false;
+        this.knownMasterIds.add(master.id);
+      } else {
+        await this.requestEndpoint(
+          '/v1/masters/' + encodeURIComponent(master.id) + '/revisions/' + encodeURIComponent(revision.id),
+          { method: 'PUT', body }
+        );
+      }
+    }
+    this.masterCache.set(master.id, {
+      ...master,
+      revisions: master.revisions.map((revision) => ({ ...revision, status: revision.status || 'DRAFT' })),
+    });
   }
 
   // --- Cloud Inspection History ---
@@ -218,6 +407,7 @@ class DatabaseService {
       master_id: record.masterId,
       master_revision_id: record.masterRevisionId,
       master_revision_code: record.masterRevisionCode,
+      master_revision_checksum: record.masterRevisionChecksum,
       judgement: record.judgement,
       expected_count: record.expectedCount,
       detected_count: record.detectedCount,
@@ -229,6 +419,7 @@ class DatabaseService {
       extra_objects: record.extraObjects,
       thumbnail_base64: record.thumbnailBase64 || null,
       device_id: record.deviceId,
+      station_id: VISION_STATION_ID,
       operator_id: record.operatorId || null,
       sequence_number: record.sequenceNumber ?? null,
       plc_interlock_state: record.plcInterlockState || null,
@@ -247,6 +438,7 @@ class DatabaseService {
       masterId: row.master_id,
       masterRevisionId: row.master_revision_id,
       masterRevisionCode: row.master_revision_code,
+      masterRevisionChecksum: row.master_revision_checksum || '',
       judgement: row.judgement,
       expectedCount: row.expected_count,
       detectedCount: row.detected_count,
