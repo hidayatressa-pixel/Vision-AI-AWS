@@ -371,12 +371,13 @@ export class ROIInspector {
     masterWidth: number,
     masterHeight: number,
     referenceImages: ReferenceImage[] = [],
-    colorFrame: ImageData | null = null
+    colorFrame: ImageData | null = null,
+    inspectionProfile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
   ): Promise<{ roiResults: ROIInspectionResult[]; extraObjects: ExtraDetectedObject[]; matchedRoiCount: number }> {
     const usableReferences = referenceImages.filter((reference) => Boolean(reference.imageUrl?.trim()));
     const results: ROIInspectionResult[] = [];
     let matchedRoiCount = 0;
-    const eightPointPresenceMode = isEightPointPresenceCandidate(rois);
+    const eightPointPresenceMode = isEightPointPresenceCandidate(rois, inspectionProfile);
     // Live recognition requires both grayscale structure and readable RGB
     // evidence. Without RGB, the system cannot claim that Master color checks ran.
 
