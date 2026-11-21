@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as engine from '../src/vision/eightPointPresenceEngine.ts';
 import { compareDescriptors, confirmsEightPointAbsence, describePatch } from '../src/vision/roiFeatureCore.js';
 
@@ -28,6 +29,13 @@ assert.ok(engine.validateEightPointPresenceLayout(rois.slice(1), 'EIGHT_POINT_PR
   'a missing screw ROI must invalidate the explicit eight-point profile instead of falling back to standard ROI mode');
 assert.equal(engine.isEightPointPresenceCandidate(rois, 'STANDARD'), false,
   'an explicitly standard profile must not be auto-promoted by having eight screw ROIs');
+
+const roiInspectorSource = readFileSync(new URL('../src/vision/roiInspector.ts', import.meta.url), 'utf8');
+const pipelineSource = readFileSync(new URL('../src/hooks/useInspectionPipeline.ts', import.meta.url), 'utf8');
+assert.match(roiInspectorSource, /isEightPointPresenceCandidate\(rois,\s*inspectionProfile\)/,
+  'ROI inspection must use the explicit Master profile instead of auto-detecting eight screw ROIs');
+assert.match(pipelineSource, /candidateFrame,\s*revision\.inspectionProfile/,
+  'the live pipeline must pass the selected Master inspection profile to ROI inspection');
 
 function resultFor(roi, evidence) {
   return {
