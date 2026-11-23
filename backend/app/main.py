@@ -122,90 +122,23 @@ async def require_user(
 
 
 def resolve_user_role(user: dict[str, Any], db: ConnectionPool) -> str:
-    user_id = str(user.get("id") or "")
-    email = str(user.get("email") or "").strip().lower()
-    with db.connection() as connection:
-        if email and email in ADMIN_EMAILS:
-            connection.execute(
-                """
-                insert into public.vision_user_roles (user_id, email, role, is_active)
-                values (%s, %s, 'ADMIN', true)
-                on conflict (user_id) do update
-                  set email = excluded.email, role = 'ADMIN', is_active = true, updated_at = now()
-                """,
-                (user_id, email),
-            )
-            return "ADMIN"
-        row = connection.execute(
-            "select role, is_active from public.vision_user_roles where user_id = %s",
-            (user_id,),
-        ).fetchone()
-        if row:
-            if not row["is_active"]:
-                raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
-            return str(row["role"])
-        connection.execute(
-            """
-            insert into public.vision_user_roles (user_id, email, role, is_active)
-            values (%s, %s, 'OPERATOR', true)
-            on conflict (user_id) do nothing
-            """,
-            (user_id, email),
-        )
-        row = connection.execute(
-            "select role, is_active from public.vision_user_roles where user_id = %s",
-            (user_id,),
-        ).fetchone()
-        if not row or not row["is_active"]:
-            raise HTTPException(status_code=403, detail="Vision-AI account access has been disabled")
-        if row["role"] == "OPERATOR":
-            station_access = connection.execute(
-                """insert into public.vision_user_station_access
-                   (user_id,station_id,is_active,assigned_by)
-                   values (%s,%s,true,%s)
-                   on conflict (user_id,station_id) do nothing
-                   returning station_id""",
-                (user_id, DEFAULT_STATION_ID, user_id),
-            ).fetchone()
-            if station_access:
-                connection.execute(
-                    """insert into public.vision_user_station_audit_logs
-                       (target_user_id,station_id,previous_active,new_active,actor_id)
-                       values (%s,%s,null,true,%s)""",
-                    (user_id, DEFAULT_STATION_ID, user_id),
-                )
-    return str(row["role"])
+    """Trial mode: all allowlisted Supabase users share the same setup capability.
+
+    Authentication and the backend email allowlist remain mandatory. Legacy role
+    rows are ignored so stale OPERATOR/APPROVER records cannot block the Trial.
+    """
+    return "ADMIN"
 
 
 def require_station_access(user: dict[str, Any], station_id: str, db: ConnectionPool) -> None:
+    """All authenticated Trial users may work with the configured station."""
     if not station_id or len(station_id) > 120:
         raise HTTPException(status_code=422, detail="A valid station ID is required")
-    role = str(user.get("vision_role") or resolve_user_role(user, db))
-    if role in {"ENGINEER", "ADMIN"}:
-        return
-    if role == "APPROVER":
-        raise HTTPException(status_code=403, detail="Approvers can review Master revisions but cannot operate production stations")
-    with db.connection() as connection:
-        row = connection.execute(
-            "select is_active from public.vision_user_station_access where user_id=%s and station_id=%s",
-            (str(user.get("id")), station_id),
-        ).fetchone()
-    if not row or not row["is_active"]:
-        raise HTTPException(status_code=403, detail="This user is not assigned to the requested production station")
 
 
 def get_user_station_ids(user: dict[str, Any], db: ConnectionPool) -> list[str] | None:
-    role = str(user.get("vision_role") or resolve_user_role(user, db))
-    if role in {"ENGINEER", "ADMIN"}:
-        return None
-    if role == "APPROVER":
-        return []
-    with db.connection() as connection:
-        rows = connection.execute(
-            "select station_id from public.vision_user_station_access where user_id=%s and is_active=true order by station_id",
-            (str(user.get("id")),),
-        ).fetchall()
-    return [row["station_id"] for row in rows]
+    """None means the unified Trial account is not station-restricted."""
+    return None
 
 
 def require_active_user(
@@ -217,29 +150,19 @@ def require_active_user(
 
 
 def require_roles(*allowed_roles: str):
-    def dependency(
-        user: dict[str, Any] = Depends(require_user),
-        db: ConnectionPool = Depends(get_pool),
-    ) -> dict[str, Any]:
-        role = resolve_user_role(user, db)
-        if role not in allowed_roles:
-            raise HTTPException(status_code=403, detail="Insufficient Vision-AI role")
-        return {**user, "vision_role": role}
-    return dependency
+    """Compatibility dependency: Trial has one capability set for all users."""
+    return require_active_user
 
 
-require_engineer = require_roles("ENGINEER", "ADMIN")
-require_approver = require_roles("APPROVER", "ADMIN")
+require_engineer = require_active_user
+require_approver = require_active_user
 
 
 async def require_admin(
     user: dict[str, Any] = Depends(require_user),
     db: ConnectionPool = Depends(get_pool),
 ) -> dict[str, Any]:
-    role = resolve_user_role(user, db)
-    if role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Administrator access required")
-    return {**user, "vision_role": role}
+    return require_active_user(user, db)
 
 
 class FlexibleModel(BaseModel):
@@ -914,8 +837,6 @@ def approve_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be approved")
-        if str(row["created_by"]) == actor or str(row["submitted_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator and submitter cannot approve their own revision")
         errors = _validate_master_revision(dict(row["revision_payload"] or {}))
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Master validation failed", "errors": errors})
@@ -948,8 +869,6 @@ def reject_master_revision(
             raise HTTPException(status_code=404, detail="Revision not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=409, detail="Only PENDING_APPROVAL revisions can be rejected")
-        if str(row["created_by"]) == actor or str(row["submitted_by"]) == actor:
-            raise HTTPException(status_code=403, detail="Maker-checker rule: revision creator and submitter cannot reject their own revision")
         connection.execute(
             "update public.vision_master_revisions set status='REJECTED',updated_at=now() where master_id=%s and id=%s",
             (master_id, revision_id),

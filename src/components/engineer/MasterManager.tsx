@@ -11,7 +11,7 @@ import { dbService } from '../../services/db';
 import { getMasterValidationChecks } from '../../services/setupValidation';
 
 interface MasterManagerProps {
-  role: UserRole;
+  role?: UserRole;
   masters: MasterProduct[];
   activeMaster: MasterProduct | null;
   activeRevision: MasterRevision | null;
@@ -24,8 +24,7 @@ interface MasterManagerProps {
 }
 
 export const MasterManager: React.FC<MasterManagerProps> = ({
-  role,
-  masters,
+    masters,
   activeMaster,
   activeRevision,
   onSelectMaster,
@@ -109,39 +108,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
     }
   };
 
-  const handleAssignUserRole = async () => {
-    const userId = window.prompt('Paste the Supabase Auth User UUID:')?.trim();
-    if (!userId) return;
-    const email = window.prompt('Enter the user email:')?.trim();
-    if (!email) return;
-    const requestedRole = window.prompt('Role: OPERATOR, ENGINEER, APPROVER, or ADMIN', 'OPERATOR')?.trim().toUpperCase();
-    if (!requestedRole || !['OPERATOR', 'ENGINEER', 'APPROVER', 'ADMIN'].includes(requestedRole)) {
-      window.alert('Unsupported role. No changes were made.');
-      return;
-    }
-    let stationIds: string[] | null = null;
-    if (requestedRole === 'OPERATOR') {
-      try {
-        const currentStations = await dbService.getUserStations(userId);
-        const stationInput = window.prompt(
-          'Comma-separated station IDs for this Operator (empty revokes all station access):',
-          currentStations.join(', ') || 'VISION-AI-AWS'
-        );
-        if (stationInput === null) return;
-        stationIds = [...new Set(stationInput.split(',').map((value) => value.trim()).filter(Boolean))];
-      } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Could not read current station assignments.');
-        return;
-      }
-    }
-    try {
-      await dbService.assignUserRole(userId, email, requestedRole as 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN');
-      if (stationIds !== null) await dbService.assignUserStations(userId, stationIds);
-      window.alert('User role and station access updated. Ask the user to refresh the application.');
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'User role update failed.');
-    }
-  };
+
 
   const handleCloneRevision = async (master: MasterProduct, rev: MasterRevision) => {
     const newRevNum = master.revisions.length + 1;
@@ -207,7 +174,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Product List */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3><div className="flex items-center gap-2">{role === 'ADMIN' && <button type="button" onClick={() => void handleAssignUserRole()} className="rounded-lg border border-amber-500/40 px-2.5 py-1.5 text-[10px] font-bold text-amber-200 hover:bg-amber-950/40">USER ROLES</button>}{(role === 'ENGINEER' || role === 'ADMIN') && <button type="button" onClick={onCreateNewMaster} className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-cyan-500">+ NEW MASTER</button>}</div></div>
+          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-mono uppercase tracking-wider text-slate-400">Registered Masters</h3><div className="flex items-center gap-2"><button type="button" onClick={onCreateNewMaster} className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-cyan-500">+ NEW MASTER</button></div></div>
 
           <div className="space-y-2">
             {masters.map((m) => {
@@ -406,7 +373,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
                         {/* Revision Action Buttons */}
                         <div className="flex items-center gap-2">
-                          {(role === 'ENGINEER' || role === 'ADMIN') && rev.status !== 'PENDING_APPROVAL' && (
+                          {true && rev.status !== 'PENDING_APPROVAL' && (
                             <button
                               onClick={() => void handleEditRevision(currentMaster, rev)}
                               className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-slate-700"
@@ -414,7 +381,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                               <Edit3 className="h-3.5 w-3.5" /><span>Edit / Calibrate</span>
                             </button>
                           )}
-                          {(role === 'ENGINEER' || role === 'ADMIN') && (
+                          {true && (
                             <button
                               onClick={() => void handleCloneRevision(currentMaster, rev)}
                               title="Clone Revision for Engineering Change"
@@ -424,16 +391,16 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                             </button>
                           )}
 
-                          {(role === 'ENGINEER' || role === 'ADMIN') && (rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
+                          {true && (rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
                             <button onClick={() => void handleSubmitRevision(currentMaster, rev)} className="rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs font-semibold text-cyan-200">Submit</button>
                           )}
-                          {(role === 'APPROVER' || role === 'ADMIN') && rev.status === 'PENDING_APPROVAL' && (
+                          {true && rev.status === 'PENDING_APPROVAL' && (
                             <>
                               <button onClick={() => void handleApproveRevision(currentMaster, rev)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">Approve</button>
                               <button onClick={() => void handleRejectRevision(currentMaster, rev)} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200">Reject</button>
                             </>
                           )}
-                          {(role === 'ENGINEER' || role === 'ADMIN') && !isActiveRev && rev.status === 'APPROVED' && (
+                          {true && !isActiveRev && rev.status === 'APPROVED' && (
                             <button onClick={() => void handleActivateRevision(currentMaster, rev.id)} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
                               <Check className="h-3.5 w-3.5" /><span>Assign to station</span>
                             </button>
