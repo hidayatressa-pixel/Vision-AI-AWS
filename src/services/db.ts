@@ -22,13 +22,25 @@ class DatabaseService {
     return `${VISION_API_URL}/v1/inspection-history`;
   }
 
-  private async requestEndpoint<T = unknown>(endpoint: string, init: RequestInit = {}): Promise<T> {
-    if (!VISION_API_URL) throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
-    const token = await getSupabaseAccessToken();
-    const response = await fetch(VISION_API_URL + endpoint, {
+  private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const send = (token: string) => fetch(url, {
       ...init,
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...init.headers },
     });
+
+    let response = await send(await getSupabaseAccessToken());
+    if (response.status === 401) {
+      // A session can expire or be rotated between the initial session read
+      // and the API request. Refresh once, then retry without looping.
+      const refreshedToken = await getSupabaseAccessToken(true);
+      response = await send(refreshedToken);
+    }
+    return response;
+  }
+
+  private async requestEndpoint<T = unknown>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    if (!VISION_API_URL) throw new Error('Vision backend is not configured. Set VITE_VISION_API_URL.');
+    const response = await this.authorizedFetch(VISION_API_URL + endpoint, init);
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       throw new Error('Vision backend error ' + response.status + ': ' + (body || response.statusText));
@@ -143,7 +155,6 @@ class DatabaseService {
   }
 
   private async request<T = unknown>(path = '', init: RequestInit = {}): Promise<T> {
-    const token = await getSupabaseAccessToken();
     const method = (init.method || 'GET').toUpperCase();
     const url = new URL(this.getHistoryApiUrl());
     if (method === 'GET' && path.startsWith('?')) {
@@ -151,14 +162,9 @@ class DatabaseService {
       if (requestedLimit) url.searchParams.set('limit', requestedLimit);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await this.authorizedFetch(url.toString(), {
       ...init,
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...init.headers,
-      },
     });
 
     if (!response.ok) {
