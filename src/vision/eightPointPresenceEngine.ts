@@ -58,14 +58,26 @@ export function getEightPointSlotIds(rois: InspectionROI[]): Map<string, string>
   return new Map(ordered.map((roi, index) => [roi.id, `P${index + 1}`]));
 }
 
-/** NG examples are optional in presence-only mode; every positive OK example must be uploaded. */
+/**
+ * Presence-only inspection still needs both sides of the decision:
+ * an OK image with the screw present and an NG image showing the validated
+ * empty slot. Without the negative reference, an unrecognized background
+ * could be mistaken for a confirmed missing screw.
+ */
 export function validateEightPointReferenceImages(references: ReferenceImage[]): boolean {
   const okReferences = references.filter((reference) => (reference.kind || 'OK') === 'OK');
+  const ngReferences = references.filter((reference) => reference.kind === 'NG');
   return okReferences.length >= 1 &&
-    okReferences.every((reference) => Boolean(reference.imageUrl?.trim()));
+    ngReferences.length >= 1 &&
+    references.every((reference) => Boolean(reference.imageUrl?.trim()));
 }
 
-export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
+export function isEightPointPresenceCandidate(
+  rois: InspectionROI[],
+  profile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
+): boolean {
+  if (profile === 'STANDARD') return false;
+  if (profile === 'EIGHT_POINT_PRESENCE') return true;
   return rois.length === EIGHT_POINT_COUNT &&
     rois.every((roi) =>
       roi.objectType === 'screw' &&
@@ -74,9 +86,20 @@ export function isEightPointPresenceCandidate(rois: InspectionROI[]): boolean {
 }
 
 /** Validate eight unique, required, non-overlapping screw slots in Master coordinates. */
-export function validateEightPointPresenceLayout(rois: InspectionROI[]): string[] {
-  if (!isEightPointPresenceCandidate(rois)) return [];
+export function validateEightPointPresenceLayout(
+  rois: InspectionROI[],
+  profile?: 'STANDARD' | 'EIGHT_POINT_PRESENCE'
+): string[] {
+  if (!isEightPointPresenceCandidate(rois, profile)) return [];
   const errors: string[] = [];
+  if (rois.length !== EIGHT_POINT_COUNT) {
+    errors.push('Eight-point presence profile requires exactly eight screw ROIs.');
+    return errors;
+  }
+  if (rois.some((roi) => roi.objectType !== 'screw' || roi.expectedObjectPresence === false)) {
+    errors.push('Every ROI in the eight-point presence profile must be a required screw position.');
+    return errors;
+  }
   const { rowCounts } = orderEightPointSlots(rois);
   if (rowCounts.length !== 3 || rowCounts[0] !== 4 || rowCounts[1] !== 2 || rowCounts[2] !== 2) {
     errors.push('Eight screw slots must be arranged in three rows with a 4-2-2 distribution from top to bottom.');
@@ -142,7 +165,7 @@ export function evaluateEightPointPresence(
     const result = resultById.get(roi.id);
     let status: EightPointResult['points'][number]['status'] = 'UNCERTAIN';
 
-    if (!result || result.evidence === 'UNCERTAIN') {
+    if (!result || result.evidence === 'UNCERTAIN' || result.status === 'WARNING') {
       uncertainCount++;
       defects.push({
         code: 'LOW_CONFIDENCE',

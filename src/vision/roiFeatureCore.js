@@ -97,6 +97,8 @@ export function describePatch(values, size = 64, polarity = 'contrast') {
     :(areaRatio<0.003&&contrastStrength<8?0.82:0.35);
   return {
     present,presenceConfidence,areaRatio,contrastStrength,
+    backgroundMedian: median,
+    backgroundMad: mad,
     centroidX:largest?largest.sumX/largest.area/size:0.5,
     centroidY:largest?largest.sumY/largest.area/size:0.5,
     bboxWidth:bboxWidth/size,bboxHeight:bboxHeight/size,
@@ -157,7 +159,17 @@ export function contourWithinTolerance(a, b, tolerance = 0.10) {
 export function compareDescriptors(a,b){
   if(!a||!b)return 0;
   if(a.present!==b.present)return 0.05;
-  if(!a.present&&!b.present)return 0.98;
+  if(!a.present&&!b.present){
+    // Two empty-looking crops are not automatically the same ROI. Compare
+    // the actual background brightness, texture and edge pattern so a missing
+    // workpiece/incorrect area cannot pass merely because no screw was found.
+    const brightness=Math.exp(-Math.abs((a.backgroundMedian??0)-(b.backgroundMedian??0))/35);
+    const texture=Math.exp(-Math.abs((a.backgroundMad??0)-(b.backgroundMad??0))/25);
+    const edgePattern=cosineSimilarity(a.hog,b.hog)*0.4+
+      cosineSimilarity(a.cellEdges,b.cellEdges)*0.4+
+      ratioSimilarity(a.edgeDensity+0.01,b.edgeDensity+0.01,1)*0.2;
+    return Math.max(0,Math.min(1,brightness*0.55+texture*0.15+edgePattern*0.30));
+  }
   const hog=cosineSimilarity(a.hog,b.hog),spatial=cosineSimilarity(a.cellEdges,b.cellEdges);
   const occupancy=cosineSimilarity(a.componentCells,b.componentCells);
   const size=ratioSimilarity(a.areaRatio,b.areaRatio,0.65);

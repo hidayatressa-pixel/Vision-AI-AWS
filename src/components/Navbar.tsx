@@ -7,7 +7,7 @@ import { MasterProduct, MasterRevision } from '../types/master';
 import { getRuntimeIdentity } from '../services/runtimeConfig';
 
 export type ActiveTab = 'INSPECTION' | 'MASTERS' | 'CAMERA_SETUP' | 'PLC_SETUP' | 'HISTORY' | 'DIAGNOSTICS' | 'SETTINGS';
-export type UserRole = 'OPERATOR' | 'ENGINEER';
+export type UserRole = 'OPERATOR' | 'ENGINEER' | 'APPROVER' | 'ADMIN';
 
 interface NavbarProps {
   activeTab: ActiveTab;

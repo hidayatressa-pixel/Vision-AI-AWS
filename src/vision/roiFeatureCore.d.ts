@@ -3,6 +3,9 @@ export interface RoiShapeDescriptor {
   presenceConfidence: number;
   areaRatio: number;
   contrastStrength: number;
+  /** Robust border statistics used to validate empty-slot/background identity. */
+  backgroundMedian: number;
+  backgroundMad: number;
   centroidX: number;
   centroidY: number;
   bboxWidth: number;

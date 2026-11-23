@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as engine from '../src/vision/eightPointPresenceEngine.ts';
 import { compareDescriptors, confirmsEightPointAbsence, describePatch } from '../src/vision/roiFeatureCore.js';
 
@@ -20,6 +21,22 @@ const rois = slotCenters.map(([x, y], index) => ({
   expectedObjectPresence: true,
 }));
 
+assert.equal(engine.isEightPointPresenceCandidate(rois, 'EIGHT_POINT_PRESENCE'), true,
+  'explicit eight-point profile must activate the dedicated engine');
+assert.equal(engine.isEightPointPresenceCandidate(rois.slice(1), 'EIGHT_POINT_PRESENCE'), true,
+  'an incomplete explicit eight-point profile must remain in fail-safe mode');
+assert.ok(engine.validateEightPointPresenceLayout(rois.slice(1), 'EIGHT_POINT_PRESENCE').length > 0,
+  'a missing screw ROI must invalidate the explicit eight-point profile instead of falling back to standard ROI mode');
+assert.equal(engine.isEightPointPresenceCandidate(rois, 'STANDARD'), false,
+  'an explicitly standard profile must not be auto-promoted by having eight screw ROIs');
+
+const roiInspectorSource = readFileSync(new URL('../src/vision/roiInspector.ts', import.meta.url), 'utf8');
+const pipelineSource = readFileSync(new URL('../src/hooks/useInspectionPipeline.ts', import.meta.url), 'utf8');
+assert.match(roiInspectorSource, /isEightPointPresenceCandidate\(rois,\s*inspectionProfile\)/,
+  'ROI inspection must use the explicit Master profile instead of auto-detecting eight screw ROIs');
+assert.match(pipelineSource, /candidateFrame,\s*revision\.inspectionProfile/,
+  'the live pipeline must pass the selected Master inspection profile to ROI inspection');
+
 function resultFor(roi, evidence) {
   return {
     roiId: roi.id,
@@ -40,13 +57,18 @@ function resultFor(roi, evidence) {
 
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: 'data:image/png;base64,ok' },
-  { id: 'ng', label: 'NG', kind: 'NG', imageUrl: '' },
-]), true, 'a blank NG slot must not block an eight-point presence Master');
+  { id: 'ng', label: 'NG empty slot', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
+]), true, 'both positive screw and validated empty-slot references are required');
+assert.equal(engine.validateEightPointReferenceImages([
+  { id: 'ok', label: 'OK', kind: 'OK', imageUrl: 'data:image/png;base64,ok' },
+  { id: 'ng', label: 'NG empty slot', kind: 'NG', imageUrl: '' },
+]), false, 'a blank NG reference must block the Master');
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ng', label: 'NG', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
 ]), false, 'an NG-only reference set cannot replace the positive screw Master');
 assert.equal(engine.validateEightPointReferenceImages([
   { id: 'ok', label: 'OK', kind: 'OK', imageUrl: '' },
+  { id: 'ng', label: 'NG', kind: 'NG', imageUrl: 'data:image/png;base64,ng' },
 ]), false, 'an empty OK reference must block the Master');
 
 const emptyPatch = new Float32Array(64 * 64).fill(80);

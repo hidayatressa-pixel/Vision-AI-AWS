@@ -36,7 +36,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   onSaved,
 }) => {
   const [activeTab, setActiveTab] = useState<'VISUAL' | 'TOLERANCES'>('VISUAL');
-  const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision });
+  const [editedRevision, setEditedRevision] = useState<MasterRevision>({ ...revision, inspectionProfile: revision.inspectionProfile ?? (isEightPointPresenceCandidate(revision.inspectionROIs) ? 'EIGHT_POINT_PRESENCE' : 'STANDARD') });
   const [editedProductName, setEditedProductName] = useState(master.productName);
   const [editedProductCode, setEditedProductCode] = useState(master.productCode);
   const [selectedItemType, setSelectedItemType] = useState<'ANCHOR' | 'ROI'>('ROI');
@@ -44,7 +44,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const [saveError, setSaveError] = useState<string | null>(null);
-  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs);
+  const isEightPointPresenceMode = isEightPointPresenceCandidate(editedRevision.inspectionROIs, editedRevision.inspectionProfile);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const referenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -81,7 +81,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       revision.inspectionROIs.forEach((roi) => { roiLayouts[roi.id] = source.roiLayouts?.[roi.id] || defaultLayout(roi); });
       return { ...source, kind, label: source.label || `${kind} Reference ${index + 1}`, roiLayouts };
     });
-    const requiredKinds: Array<'OK' | 'NG'> = isEightPointPresenceCandidate(revision.inspectionROIs) ? ['OK'] : ['OK', 'NG'];
+    const requiredKinds: Array<'OK' | 'NG'> = ['OK', 'NG'];
     requiredKinds.forEach((kind) => {
       if (!normalized.some((reference) => reference.kind === kind)) normalized.push({
         id: `${revision.id}-${kind.toLowerCase()}-${Date.now()}`,
@@ -90,7 +90,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         description: kind === 'OK' ? 'Approved good product reference.' : 'Known NG/defect product reference.',
       });
     });
-    setEditedRevision({ ...revision, roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
+    setEditedRevision({ ...revision, inspectionProfile: revision.inspectionProfile ?? (isEightPointPresenceCandidate(revision.inspectionROIs) ? 'EIGHT_POINT_PRESENCE' : 'STANDARD'), roiBoundaryPolicy: revision.roiBoundaryPolicy ?? 'WARNING', referenceImages: normalized });
     setSelectedReferenceId(normalized[0]?.id || '');
     setSelectedId(revision.inspectionROIs?.[0]?.id || '');
   }, [revision]);
@@ -335,6 +335,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
         setEditedRevision((prev) => ({
           ...prev,
           masterImageUrl: dataUrl,
+          masterImagePath: undefined,
           masterWidth: img.naturalWidth,
           masterHeight: img.naturalHeight,
         }));
@@ -479,7 +480,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
       setEditedRevision((prev) => ({
         ...prev,
         referenceImages: (prev.referenceImages || []).map((reference) =>
-          reference.id === referenceId ? { ...reference, imageUrl: dataUrl } : reference
+          reference.id === referenceId ? { ...reference, imageUrl: dataUrl, storagePath: undefined } : reference
         ),
       }));
     };
@@ -512,6 +513,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
     const normalizedRevision: MasterRevision = {
       ...editedRevision,
       roiBoundaryPolicy: editedRevision.roiBoundaryPolicy ?? 'WARNING',
+      inspectionProfile: editedRevision.inspectionProfile ?? 'STANDARD',
       // Preserve engineer-configured alignment anchors; saving a master must never erase calibration data.
       anchors: editedRevision.anchors || [],
       expectedObjectCount: editedRevision.inspectionROIs.filter((roi) => roi.expectedObjectPresence !== false).length,
@@ -558,7 +560,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
               </h2>
               <p className="text-xs text-slate-400 font-mono">
                 {isEightPointPresenceMode
-                  ? 'Eight-point screw presence · one positive OK Master reference; NG references optional.'
+                  ? 'Eight-point screw presence · positive OK and validated empty-slot NG references are required.'
                   : 'Configure this product\'s inspection areas and any number of OK/NG reference examples.'}
               </p>
             </div>
@@ -599,7 +601,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
             <label className="space-y-1">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Name</span>
               <input value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. Lamp Assembly" />
@@ -607,6 +609,18 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             <label className="space-y-1">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Product Code</span>
               <input value={editedProductCode} onChange={(event) => setEditedProductCode(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500" placeholder="e.g. LAMP-ASSY-001" />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Inspection Profile</span>
+              <select value={editedRevision.inspectionProfile ?? 'STANDARD'}
+                onChange={(event) => setEditedRevision((prev) => ({
+                  ...prev,
+                  inspectionProfile: event.target.value as 'STANDARD' | 'EIGHT_POINT_PRESENCE',
+                }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                <option value="STANDARD">Standard ROI Inspection</option>
+                <option value="EIGHT_POINT_PRESENCE">Eight-Point Screw Presence (4-2-2)</option>
+              </select>
             </label>
           </div>
           {/* Interactive Canvas Area */}
@@ -645,7 +659,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     Reference Images · Flexible OK / NG
                     <span className="text-[10px] font-mono text-slate-500">({editedRevision.referenceImages?.length || 0} images)</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; add more for robustness.</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">Select any reference to edit its own ROI layout. Use at least one OK and one NG example; both are required to distinguish the target area from an unrecognized background.</p>
                 </div>
                 {selectedReference && (
                   <div className="hidden sm:block text-right text-[10px] font-mono">
@@ -690,7 +704,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                           <img src={reference.imageUrl} alt={reference.label} className="h-full w-full object-cover" />
                         ) : (
                           <div className="px-2 text-center text-[9px] font-mono font-bold text-amber-400">
-                            {isEightPointPresenceMode && reference.kind === 'NG' ? 'OPTIONAL NG' : 'UPLOAD REQUIRED'}
+                            {'UPLOAD REQUIRED'}
                           </div>
                         )}
                       </div>
@@ -736,7 +750,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
             </div>
             <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
               <span>{isEightPointPresenceMode
-                ? 'Each of the eight slots is checked for physical screw presence against the positive OK Master. NG reference images are optional.'
+                ? 'Each of the eight slots is checked against the positive screw Master and a validated empty-slot NG reference. Neither missing evidence nor an unrecognized area may pass.'
                 : 'Each reference image has its own editable ROI layout. The live crop is compared against the configured OK and NG examples.'}</span>
               <span className="text-cyan-400">Master Res: {editedRevision.masterWidth}x{editedRevision.masterHeight}</span>
             </div>
@@ -852,6 +866,8 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         height: 0.10,
                         toleranceRadius: 0.05,
                         minConfidence: 0.75,
+                        minColorSimilarity: 0.55,
+                        colorWeight: 0.15,
                         isRequired: true,
                         expectedPolarity: 'contrast',
                         comparisonMode: 'STRUCTURE_FIRST',
@@ -863,6 +879,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                       setEditedRevision((prev) => ({
                         ...prev,
                         expectedObjectCount: 8,
+                        inspectionProfile: 'EIGHT_POINT_PRESENCE',
                         inspectionROIs: slots,
                         referenceImages: prev.referenceImages.map((reference) => ({
                           ...reference,
@@ -888,7 +905,7 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                         id, name: 'ROI ' + (editedRevision.inspectionROIs.length + 1),
                         objectType: 'component', x: 0.5, y: 0.5, radius: 0.1,
                         width: 0.2, height: 0.2, toleranceRadius: 0.05,
-                        minConfidence: 0.75, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
+                        minConfidence: 0.75, minColorSimilarity: 0.55, colorWeight: 0.15, isRequired: true, expectedPolarity: 'contrast', comparisonMode: 'BALANCED',
                         expectedObjectPresence: true, minClassMargin: 0.06, sizeToleranceRatio: 0.35, shapeToleranceRatio: 0.10,
                       };
                       const defaultLayout = { x: 0.4, y: 0.4, width: 0.2, height: 0.2 };
@@ -1103,6 +1120,46 @@ export const MasterSetupModal: React.FC<MasterSetupModalProps> = ({
                     <p className="text-[10px] text-slate-500 font-mono mt-1">
                       A higher threshold requires stronger similarity to the OK class than to the NG class.
                     </p>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-mono mb-1">
+                      <span className="text-slate-300">Master Color Similarity Threshold:</span>
+                      <span className="text-cyan-400 font-bold">{selectedRoi ? Math.round((selectedRoi.minColorSimilarity ?? 0.55) * 100) + '%' : 'Select ROI'}</span>
+                    </div>
+                    <input type="range" min="0.4" max="0.98" step="0.02" disabled={!selectedRoi}
+                      value={selectedRoi?.minColorSimilarity ?? 0.55}
+                      onChange={(event) => {
+                        if (!selectedRoi) return;
+                        const minColorSimilarity = Number(event.target.value);
+                        setEditedRevision((prev) => ({
+                          ...prev,
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, minColorSimilarity } : roi
+                          ),
+                        }));
+                      }} className="w-full accent-cyan-500" />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Rejects a screw-like object whose RGB color signature does not sufficiently match its Master reference. Neutral metallic references are treated as color-neutral.</p>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-mono mb-1">
+                      <span className="text-slate-300">RGB Color Weight:</span>
+                      <span className="text-cyan-400 font-bold">{selectedRoi ? Math.round((selectedRoi.colorWeight ?? 0.15) * 100) + '%' : 'Select ROI'}</span>
+                    </div>
+                    <input type="range" min="0.05" max="0.4" step="0.01" disabled={!selectedRoi}
+                      value={selectedRoi?.colorWeight ?? 0.15}
+                      onChange={(event) => {
+                        if (!selectedRoi) return;
+                        const colorWeight = Number(event.target.value);
+                        setEditedRevision((prev) => ({
+                          ...prev,
+                          inspectionROIs: prev.inspectionROIs.map((roi) =>
+                            roi.id === selectedRoi.id ? { ...roi, colorWeight } : roi
+                          ),
+                        }));
+                      }} className="w-full accent-cyan-500" />
+                    <p className="text-[10px] text-slate-500 font-mono mt-1">Sets the RGB color contribution to the combined shape, texture, and color recognition score.</p>
                   </div>
 
                   <div>
