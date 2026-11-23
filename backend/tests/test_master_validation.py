@@ -1,8 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
 
-from fastapi import HTTPException
-
 from backend.app.main import (
     _canonical_checksum,
     _validate_master_revision,
@@ -89,34 +87,18 @@ def valid_eight_point_revision():
 
 
 class StationAccessTests(unittest.TestCase):
-    def test_operator_with_station_assignment_is_allowed(self):
-        connection = MagicMock()
-        connection.execute.return_value.fetchone.return_value = {"is_active": True}
+    def test_trial_access_is_not_limited_by_legacy_role_or_station_mapping(self):
         pool = MagicMock()
-        pool.connection.return_value.__enter__.return_value = connection
-        require_station_access({"id": "user-1", "vision_role": "OPERATOR"}, "LINE-01", pool)
-
-    def test_operator_without_station_assignment_is_denied(self):
-        connection = MagicMock()
-        connection.execute.return_value.fetchone.return_value = None
-        pool = MagicMock()
-        pool.connection.return_value.__enter__.return_value = connection
-        with self.assertRaises(HTTPException) as raised:
-            require_station_access({"id": "user-1", "vision_role": "OPERATOR"}, "LINE-02", pool)
-        self.assertEqual(raised.exception.status_code, 403)
-
-    def test_engineer_can_manage_stations_without_operator_mapping(self):
-        pool = MagicMock()
-        require_station_access({"id": "engineer-1", "vision_role": "ENGINEER"}, "LINE-99", pool)
+        for role in ("OPERATOR", "ENGINEER", "APPROVER", "ADMIN", None):
+            with self.subTest(role=role):
+                require_station_access({"id": "trial-user", "vision_role": role}, "LINE-01", pool)
         pool.connection.assert_not_called()
 
-
-    def test_approver_cannot_operate_a_production_station(self):
+    def test_invalid_station_identifier_is_still_rejected(self):
         pool = MagicMock()
-        with self.assertRaises(HTTPException) as raised:
-            require_station_access({"id": "approver-1", "vision_role": "APPROVER"}, "LINE-01", pool)
-        self.assertEqual(raised.exception.status_code, 403)
-        pool.connection.assert_not_called()
+        with self.assertRaises(Exception) as raised:
+            require_station_access({"id": "trial-user"}, "", pool)
+        self.assertEqual(getattr(raised.exception, "status_code", None), 422)
 
 
 class MasterRevisionValidationTests(unittest.TestCase):
