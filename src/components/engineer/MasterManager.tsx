@@ -373,7 +373,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
 
                         {/* Revision Action Buttons */}
                         <div className="flex items-center gap-2">
-                          {true && rev.status !== 'PENDING_APPROVAL' && (
+                          {rev.status !== 'PENDING_APPROVAL' && (
                             <button
                               onClick={() => void handleEditRevision(currentMaster, rev)}
                               className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-slate-700"
@@ -381,7 +381,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                               <Edit3 className="h-3.5 w-3.5" /><span>Edit / Calibrate</span>
                             </button>
                           )}
-                          {true && (
+                          {(
                             <button
                               onClick={() => void handleCloneRevision(currentMaster, rev)}
                               title="Clone Revision for Engineering Change"
@@ -391,7 +391,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                             </button>
                           )}
 
-                          {true && (rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
+                          {(rev.status === 'DRAFT' || rev.status === 'REJECTED') && (
                             <button onClick={() => void handleSubmitRevision(currentMaster, rev)} className="rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs font-semibold text-cyan-200">Submit</button>
                           )}
                           {true && rev.status === 'PENDING_APPROVAL' && (
@@ -400,7 +400,7 @@ export const MasterManager: React.FC<MasterManagerProps> = ({
                               <button onClick={() => void handleRejectRevision(currentMaster, rev)} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200">Reject</button>
                             </>
                           )}
-                          {true && !isActiveRev && rev.status === 'APPROVED' && (
+                          {!isActiveRev && rev.status === 'APPROVED' && (
                             <button onClick={() => void handleActivateRevision(currentMaster, rev.id)} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
                               <Check className="h-3.5 w-3.5" /><span>Assign to station</span>
                             </button>
